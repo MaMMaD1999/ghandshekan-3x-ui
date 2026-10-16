@@ -75,3 +75,39 @@ func TestProNetMixedSidecarIdentityIsPreserved(t *testing.T) {
 		t.Fatalf("sidecar identity or independent usage lost: %+v, %v", rows, err)
 	}
 }
+
+func TestProNetWeightedQuotaAndRateHistory(t *testing.T) {
+	setupBulkDB(t)
+	db := database.GetDB()
+	svc := &InboundService{}
+	ib := mkInbound(t, 28999, model.VLESS, `{"clients":[]}`)
+	_, err := (&ClientService{}).Create(svc, &ClientCreatePayload{
+		Client:     model.Client{Email: "quota@pronet", ID: "a0000000-0000-0000-0000-000000000099", Enable: true, TotalGB: 4500},
+		InboundIds: []int{ib.Id},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rate := range []float64{3, 2} {
+		if err := db.Model(ib).Update("traffic_coefficient", rate).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := svc.AddTraffic(nil, []*xray.ClientTraffic{
+			{Email: "quota@pronet", Down: 1000},
+			{Email: "quota@pronet", InboundTag: ib.Tag, Down: 1000},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := audit3Traffic(t, "quota@pronet")
+	if got.Down != 5000 || got.Enable {
+		t.Fatalf("quota must be billed and disabled: %+v", got)
+	}
+	var rows []model.InboundTrafficDetail
+	if err := db.Where("email = ?", "quota@pronet").Order("rate_parts").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].RawDown != 1000 || rows[0].BilledDown != 2000 || rows[1].RawDown != 1000 || rows[1].BilledDown != 3000 {
+		t.Fatalf("history must preserve both rates: %+v", rows)
+	}
+}
