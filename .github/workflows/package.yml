@@ -34,6 +34,7 @@ jobs:
           path: .pronet-core
       - run: go test ./app/dispatcher && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../custom-xray ./main
         working-directory: .pronet-core
+      - run: python3 tools/test_pronet_core.py ./custom-xray
       - name: Build and verify package
         env:
           ARCH: ${{ matrix.arch }}
