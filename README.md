@@ -1,3 +1,9 @@
+# ProNet custom 3x-ui
+
+This fork adds per-user/per-inbound raw and billed accounting, native quota coefficients, and subscription traffic cards. Use the [ProNet release and installation instructions](PRONET-RELEASE.md). **Do not use the upstream installer or updater below: they replace the custom core.**
+
+---
+
 [English](/README.md) | [فارسی](/README.fa_IR.md) | [العربية](/README.ar_EG.md) | [中文](/README.zh_CN.md) | [Español](/README.es_ES.md) | [Русский](/README.ru_RU.md) | [Türkçe](/README.tr_TR.md)
 
 <p align="center">

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-case "${1:-status}" in
-  start|stop|restart|status) exec systemctl "$1" x-ui;;
+command="${1:-status}"
+case "$command" in
+  start|stop|restart|status) exec systemctl "$command" x-ui;;
   log) exec journalctl -u x-ui -f;;
   setting) shift; cd /usr/local/x-ui; exec ./x-ui setting "$@";;
   update) echo 'Use the versioned ProNet installer; stock updates would remove custom accounting.';;

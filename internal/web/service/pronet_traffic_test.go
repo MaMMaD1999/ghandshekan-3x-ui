@@ -63,3 +63,15 @@ func TestProNetLegacyRowsPreserveIdentityMetadata(t *testing.T) {
 		t.Fatal("ordinary counters modified", err)
 	}
 }
+
+func TestProNetMixedSidecarIdentityIsPreserved(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	sidecar := &xray.ClientTraffic{Email: "same", TuicTrafficID: 12, Up: 20}
+	rows, err := weightDetailedTraffic(db, []*xray.ClientTraffic{
+		sidecar, {Email: "same", Up: 50}, {Email: "same", InboundTag: "deleted", Up: 50},
+	})
+	if err != nil || len(rows) != 2 || rows[0] != sidecar || rows[1].Up != 50 {
+		t.Fatalf("sidecar identity or independent usage lost: %+v, %v", rows, err)
+	}
+}

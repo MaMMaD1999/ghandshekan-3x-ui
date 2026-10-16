@@ -74,11 +74,16 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 	}
 	details := map[string][]*xray.ClientTraffic{}
 	totals := map[string]*xray.ClientTraffic{}
+	var passthrough []*xray.ClientTraffic
 	for _, r := range rows {
 		if r == nil {
 			continue
 		}
-		if r.InboundTag != "" {
+		if r.TuicTrafficID > 0 || r.TuicUUID != "" || r.Email == "" {
+			// Sidecar identity is resolved downstream; never merge it into an
+			// Xray aggregate sharing an old or empty email.
+			passthrough = append(passthrough, r)
+		} else if r.InboundTag != "" {
 			details[r.Email] = append(details[r.Email], r)
 		} else {
 			if totals[r.Email] == nil {
@@ -158,7 +163,7 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 		total.Up, total.Down = billedUp, billedDown
 
 	}
-	result := make([]*xray.ClientTraffic, 0, len(totals))
+	result := append(make([]*xray.ClientTraffic, 0, len(totals)+len(passthrough)), passthrough...)
 	for _, r := range totals {
 		result = append(result, r)
 	}
