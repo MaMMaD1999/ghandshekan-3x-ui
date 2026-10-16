@@ -841,6 +841,14 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 	emailTrafficMap := make(map[string]*ClientTraffic)
 
 	baselinePass := len(x.StatsLastValues) == 0
+	// Our process is owned/restarted by the panel; its first custom counters
+	// start at zero. Do not discard traffic transferred before the first poll.
+	for _, stat := range resp.GetStat() {
+		if stat.Name == "pronet>>>capability>>>1" && stat.Value == 1 {
+			baselinePass = false
+			break
+		}
+	}
 
 	for _, stat := range resp.GetStat() {
 		lastValue, ok := x.StatsLastValues[stat.Name]

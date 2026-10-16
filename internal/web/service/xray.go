@@ -1754,3 +1754,15 @@ func forceUserspaceWireGuardTun(raw json_util.RawMessage) json_util.RawMessage {
 	}
 	return rewritten
 }
+
+// Keep a failed durable traffic transaction retryable on the next poll.
+func (s *XrayService) TrafficBaseline() map[string]int64 {
+	out := map[string]int64{}
+	for k, v := range s.xrayAPI.StatsLastValues {
+		out[k] = v
+	}
+	return out
+}
+func (s *XrayService) RestoreTrafficBaseline(previous map[string]int64) {
+	s.xrayAPI.StatsLastValues = previous
+}

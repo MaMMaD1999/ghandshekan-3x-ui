@@ -75,6 +75,7 @@ func (j *XrayTrafficJob) Run() {
 	if !j.xrayService.IsXrayRunning() {
 		return
 	}
+	baseline := j.xrayService.TrafficBaseline()
 	traffics, clientTraffics, err := j.xrayService.GetXrayTraffic()
 	if err != nil {
 		return
@@ -82,6 +83,8 @@ func (j *XrayTrafficJob) Run() {
 	needRestart0, clientsDisabled, err := j.inboundService.AddTraffic(traffics, clientTraffics)
 	if err != nil {
 		logger.Warning("add inbound traffic failed:", err)
+		j.xrayService.RestoreTrafficBaseline(baseline)
+		return
 	}
 
 	// Detail rows are not a second contribution to websocket/external totals.
