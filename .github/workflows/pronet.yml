@@ -1,7 +1,7 @@
 name: ProNet validation
 on:
   push:
-    branches: [pronet/main]
+    branches: [main, pronet/main]
   workflow_dispatch:
 permissions:
   contents: read
