@@ -90,3 +90,24 @@ func ProNetSubscriptionTraffic(emails []string) []model.InboundTrafficDetail {
 	}
 	return rows
 }
+
+func (s *InboundService) ensureCoefficientRuntime(ib *model.Inbound) error {
+	if trafficRate(ib) == 1 {
+		return nil
+	}
+	if ib.NodeID == nil {
+		if ProNetCoreReady() {
+			return nil
+		}
+		return fmt.Errorf("custom accounting core is not running")
+	}
+	rt, _, _, err := s.nodePushPlan(ib)
+	if err != nil {
+		return err
+	}
+	probe, ok := rt.(interface{ HasProNetAccounting(context.Context) bool })
+	if !ok || !probe.HasProNetAccounting(context.Background()) {
+		return fmt.Errorf("node requires the ProNet panel and core; official nodes cannot apply inbound coefficients")
+	}
+	return nil
+}

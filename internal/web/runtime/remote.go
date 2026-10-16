@@ -995,3 +995,16 @@ func (r *Remote) SetTrafficCoefficient(ctx context.Context, ib *model.Inbound, r
 	_, err = r.do(ctx, http.MethodPost, "panel/api/inbounds/"+strconv.Itoa(id)+"/trafficCoefficient", payload)
 	return err
 }
+
+func (r *Remote) HasProNetAccounting(ctx context.Context) bool {
+	env, err := r.do(ctx, http.MethodGet, "panel/api/inbounds/pronet/capabilities", nil)
+	if err != nil {
+		return false
+	}
+	var caps struct {
+		Product string `json:"product"`
+		Version int    `json:"accountingVersion"`
+		Core    bool   `json:"coreReady"`
+	}
+	return json.Unmarshal(env.Obj, &caps) == nil && caps.Product == "pronet-3x-ui" && caps.Version == 1 && caps.Core
+}

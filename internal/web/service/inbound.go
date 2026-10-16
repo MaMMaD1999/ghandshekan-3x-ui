@@ -1238,6 +1238,9 @@ func (s *InboundService) normalizeMtprotoXrayPort(inbound *model.Inbound, oldSet
 // then saves the inbound to the database and optionally adds it to the running Xray instance.
 // Returns the created inbound, whether Xray needs restart, and any error.
 func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
+	if err := s.ensureCoefficientRuntime(inbound); err != nil {
+		return inbound, false, err
+	}
 	if err := validateTrafficCoefficient(inbound); err != nil {
 		return inbound, false, err
 	}
@@ -1938,6 +1941,11 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	inbound.NodeID = oldInbound.NodeID
 	if inbound.TrafficCoefficient == nil {
 		inbound.TrafficCoefficient = oldInbound.TrafficCoefficient
+	}
+	if trafficRate(inbound) != trafficRate(oldInbound) {
+		if err := s.ensureCoefficientRuntime(inbound); err != nil {
+			return inbound, false, err
+		}
 	}
 	if err := normalizeTuicSettings(inbound); err != nil {
 		return inbound, false, err
