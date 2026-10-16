@@ -153,7 +153,10 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 			}
 			detail.RemainderUp, detail.RemainderDown = ru, rd
 			detail.UpdatedAt = time.Now().UnixMilli()
-			if err = tx.Save(&detail).Error; err != nil {
+			// Empty local origin and a free (zero) rate are valid key parts.
+			// Save treats zero-valued primary keys as new rows; use an explicit
+			// upsert so subsequent polls accumulate instead of failing uniqueness.
+			if err = tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&detail).Error; err != nil {
 				return nil, err
 			}
 		}

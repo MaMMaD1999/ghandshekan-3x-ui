@@ -14,7 +14,7 @@ Based on Sanaei 3x-ui v3.10.2 and its pinned Xray revision. Both master and exec
 Use a clean test node first. Linux with systemd, amd64 or arm64; requires curl, tar, sha256sum and openssl. The installer verifies release checksums and retains existing configuration and program backups under `/var/backups/pronet`.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.3/pronet-install.sh) v3.10.2-pronet.3
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.4/pronet-install.sh) v3.10.2-pronet.4
 ```
 
 The command is usable only after the corresponding release assets are published. On a fresh install, random login credentials and the panel path are printed. Configure HTTPS and firewall access before using the panel remotely. Existing credentials and settings are preserved.

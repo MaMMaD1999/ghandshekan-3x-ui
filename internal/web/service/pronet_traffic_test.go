@@ -25,6 +25,35 @@ func TestProNetFractionalRemainder(t *testing.T) {
 		t.Fatal("free traffic", b, err)
 	}
 }
+
+func TestProNetRepeatedPollsAccumulateIncludingFreeRate(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	for _, rate := range []float64{0, 0.3, 3} {
+		ib := &model.Inbound{Tag: "repeated", Protocol: model.VLESS, TrafficCoefficient: &rate}
+		if err := db.Where("tag = ?", ib.Tag).Delete(&model.Inbound{}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(ib).Error; err != nil {
+			t.Fatal(err)
+		}
+		var charged int64
+		for i := 0; i < 10; i++ {
+			rows, err := weightDetailedTraffic(db, []*xray.ClientTraffic{{Email: "repeat", Up: 1}, {Email: "repeat", InboundTag: ib.Tag, Up: 1}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			charged += rows[0].Up
+		}
+		var row model.InboundTrafficDetail
+		if err := db.Where("inbound_tag = ? AND rate_parts = ?", ib.Tag, int64(rate*1000000)).Take(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.RawUp != 10 || row.BilledUp != int64(10*rate) || charged != row.BilledUp {
+			t.Fatalf("rate %v: %+v, charged %v", rate, row, charged)
+		}
+	}
+}
 func TestProNetSharedIdentityWeightedOnce(t *testing.T) {
 	setupConflictDB(t)
 	db := database.GetDB()
