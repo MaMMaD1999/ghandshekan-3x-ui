@@ -29,6 +29,13 @@ class InstallerTest(unittest.TestCase):
         self.assertIn('MaMMaD1999/pronet-3x-ui', function('installed_script_url'))
         self.assertIn('Only ProNet custom', function('legacy_version'))
 
+    def test_shared_postgres_cannot_be_purged(self):
+        body = function('purge_postgresql')
+        for forbidden in ('apt-get', 'rm -', 'systemctl', 'dropdb', 'dnf', 'apk del'):
+            self.assertNotIn(forbidden, body)
+        output = self.run_shell('LOGI(){ echo "$*"; };\n' + body + '\npurge_postgresql')
+        self.assertIn('all databases are preserved', output)
+
     def summary(self, fresh, host='', ssh='', cert=False):
         # Replace only the CLI calls and certificate file check with deterministic fixtures.
         summary = INSTALL[INSTALL.index('info=$(cd /usr/local/x-ui;'):]

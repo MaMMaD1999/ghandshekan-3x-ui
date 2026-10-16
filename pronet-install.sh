@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # No configuration is erased. Staging files and backups are retained for review.
-VERSION="${1:-v3.10.2-pronet.5}"
+VERSION="${1:-v3.10.2-pronet.6}"
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || exit 1
 [[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 for command in systemctl curl tar sha256sum openssl; do

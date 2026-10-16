@@ -129,7 +129,7 @@ before_show_menu() {
 }
 
 install() {
-    local version="${PRONET_VERSION:-v3.10.2-pronet.5}" temp
+    local version="${PRONET_VERSION:-v3.10.2-pronet.6}" temp
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Invalid custom release"; return 1; }
     temp=$(mktemp) || return 1
     if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/$version/pronet-install.sh" -o "$temp"; then
@@ -190,7 +190,7 @@ replace_xui_script() {
 # The menu must match the installed panel, so update it from that release's
 # tag; fall back to main only when no script is published for the version.
 installed_script_url() {
-    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.5/x-ui.sh"
+    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.6/x-ui.sh"
 }
 
 update_menu() {
@@ -216,7 +216,7 @@ update_menu() {
 
 legacy_version() {
     local version
-    read -rp "Custom release (for example v3.10.2-pronet.5): " version
+    read -rp "Custom release (for example v3.10.2-pronet.6): " version
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Only ProNet custom releases are accepted."; return 1; }
     PRONET_VERSION="$version" install
 }
@@ -286,7 +286,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.5/pronet-install.sh) v3.10.2-pronet.5${plain}"
+    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.6/pronet-install.sh) v3.10.2-pronet.6${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM
@@ -2808,58 +2808,8 @@ pg_require_installed() {
 # any other application sharing this PostgreSQL instance loses its data too. Mirrors the
 # package names used by pg_install_local() so the right packages are removed per distro.
 purge_postgresql() {
-    echo ""
-    echo -e "${yellow}This panel was using PostgreSQL.${plain}"
-    echo -e "${red}WARNING:${plain} purging removes the PostgreSQL server and ${red}ALL${plain} of its databases on"
-    echo -e "this machine, including any used by other applications. This cannot be undone."
-    confirm "Also purge PostgreSQL and delete all of its data?" "n"
-    if [[ $? != 0 ]]; then
-        LOGI "Left PostgreSQL installed; its data was not removed."
-        return 0
-    fi
-
-    if [[ $release == "alpine" ]]; then
-        rc-service postgresql stop 2> /dev/null
-        rc-update del postgresql 2> /dev/null
-    else
-        systemctl stop "$(pg_systemd_unit)" 2> /dev/null
-        systemctl disable "$(pg_systemd_unit)" 2> /dev/null
-    fi
-
-    local pgdg_pkgs=()
-    command -v rpm > /dev/null 2>&1 && mapfile -t pgdg_pkgs < <(rpm -qa --qf '%{NAME}\n' "postgresql${PG_TARGET_MAJOR}*")
-    case "${release}" in
-        ubuntu | debian | armbian)
-            apt-get -y --purge remove 'postgresql*'
-            apt-get -y autoremove --purge
-            ;;
-        fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
-            dnf remove -y postgresql postgresql-server postgresql-contrib "${pgdg_pkgs[@]}"
-            ;;
-        centos)
-            if [[ "${VERSION_ID}" =~ ^7 ]]; then
-                yum remove -y postgresql postgresql-server postgresql-contrib
-            else
-                dnf remove -y postgresql postgresql-server postgresql-contrib "${pgdg_pkgs[@]}"
-            fi
-            ;;
-        arch | manjaro | parch)
-            pacman -Rns --noconfirm postgresql
-            ;;
-        opensuse-tumbleweed | opensuse-leap)
-            zypper -q remove -y postgresql postgresql-server postgresql-contrib
-            ;;
-        alpine)
-            apk del postgresql postgresql-contrib postgresql-client
-            ;;
-        *)
-            LOGE "Unsupported distro for automatic PostgreSQL purge: ${release}. Remove it manually."
-            return 1
-            ;;
-    esac
-
-    rm -rf /var/lib/postgresql /var/lib/pgsql /var/lib/postgres /etc/postgresql
-    LOGI "PostgreSQL has been purged."
+    LOGI "PostgreSQL and all databases are preserved. Global database removal is disabled in ProNet because other applications may share this server."
+    return 0
 }
 
 # RHEL-family initdb writes pg_hba.conf host rules with ident auth, which
