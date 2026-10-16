@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # No configuration is erased. Staging files and backups are retained for review.
-VERSION="${1:-v3.10.2-pronet.2}"
+VERSION="${1:-v3.10.2-pronet.3}"
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || exit 1
 [[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 for command in systemctl curl tar sha256sum openssl; do
@@ -36,7 +36,7 @@ for env_file in /etc/default/x-ui /etc/conf.d/x-ui /etc/sysconfig/x-ui; do
   fresh=0
   command -v python3 >/dev/null || { echo 'python3 is required to back up the existing database configuration.' >&2; exit 1; }
   python3 - "$env_file" "$backup" <<'PY'
-import os, pathlib, shlex, subprocess, sys
+import os, pathlib, shlex, subprocess, sys, urllib.parse
 values = {}
 for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
     tokens = shlex.split(line, comments=True)
@@ -47,8 +47,21 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
 if values.get('XUI_DB_TYPE', '').lower() in ('postgres', 'postgresql', 'pg'):
     dsn = values.get('XUI_DB_DSN')
     if not dsn: raise SystemExit('PostgreSQL DSN is missing; no files changed.')
-    env = dict(os.environ, PGDATABASE=dsn)
-    subprocess.run(['pg_dump', '--format=custom', '--file=' + str(pathlib.Path(sys.argv[2])/'database.dump')], env=env, check=True)
+    env = dict(os.environ)
+    if dsn.startswith(('postgres://', 'postgresql://')):
+        uri = urllib.parse.urlsplit(dsn)
+        fields = dict(host=uri.hostname or '', port=str(uri.port or 5432),
+            user=urllib.parse.unquote(uri.username or ''), password=urllib.parse.unquote(uri.password or ''),
+            dbname=urllib.parse.unquote(uri.path.lstrip('/')),
+            **dict(urllib.parse.parse_qsl(uri.query)))
+    else:
+        fields = dict(token.split('=', 1) for token in shlex.split(dsn) if '=' in token)
+    names = dict(host='PGHOST', port='PGPORT', user='PGUSER', password='PGPASSWORD', dbname='PGDATABASE',
+        sslmode='PGSSLMODE', sslcert='PGSSLCERT', sslkey='PGSSLKEY', sslrootcert='PGSSLROOTCERT')
+    for key, name in names.items():
+        if key in fields: env[name] = fields[key]
+    result = subprocess.run(['pg_dump', '--format=custom', '--file=' + str(pathlib.Path(sys.argv[2])/'database.dump')], env=env, capture_output=True)
+    if result.returncode: raise SystemExit('PostgreSQL backup failed; no program files were changed. Check pg_dump access.')
     print('PostgreSQL backup complete.')
 PY
   break
