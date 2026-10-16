@@ -48,6 +48,7 @@ type User struct {
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
 	TrafficCoefficient   *float64               `json:"trafficCoefficient,omitempty" form:"trafficCoefficient"`
+	AccountingVersion    int                    `json:"accountingVersion,omitempty" gorm:"-"`
 	DetailedTraffic      []InboundTrafficDetail `json:"detailedTraffic,omitempty" gorm:"-"`
 	Id                   int                    `json:"id" form:"id" gorm:"primaryKey;autoIncrement" example:"1"`                                                                                                     // Unique identifier
 	UserId               int                    `json:"-"`                                                                                                                                                            // Associated user ID

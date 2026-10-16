@@ -105,6 +105,9 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 		}
 		rawUp, rawDown, billedUp, billedDown := int64(0), int64(0), int64(0), int64(0)
 		for _, part := range parts {
+			if part.Up == 0 && part.Down == 0 {
+				continue
+			}
 			var inbound model.Inbound
 			err := tx.Where("tag = ? AND node_id IS NULL", part.InboundTag).Take(&inbound).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -179,6 +182,7 @@ func attachDetailedTraffic(db *gorm.DB, inbounds []*model.Inbound) error {
 		return err
 	}
 	for _, ib := range inbounds {
+		ib.AccountingVersion = 1
 		ib.DetailedTraffic = nil
 		for _, row := range rows {
 			origin := ib.OriginNodeGuid

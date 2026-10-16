@@ -214,6 +214,9 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
 }
 
 func (s *PanelService) startUpdate(useDev bool) (int64, error) {
+	return 0, fmt.Errorf("ProNet accounting: use the ProNet package installer to update panel and core together")
+}
+func (s *PanelService) upstreamUpdateDisabled(useDev bool) (int64, error) {
 	runID := time.Now().UnixNano()
 	if !acquireUpdateSlot(runID) {
 		return 0, fmt.Errorf("a panel update is already in progress")
