@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # No configuration is erased. Staging files and backups are retained for review.
-VERSION="${1:-v3.10.2-pronet.6}"
-[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || exit 1
+VERSION="${1:-latest}"
 [[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 for command in systemctl curl tar sha256sum openssl; do
   command -v "$command" >/dev/null || { echo "Install $command first." >&2; exit 1; }
 done
+if [[ "$VERSION" == latest ]]; then
+  # Public releases includes published prereleases; /releases/latest excludes them.
+  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=1')
+  VERSION=$(printf '%s\n' "$releases" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"(v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+)".*/\1/p')
+fi
+[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { echo 'Invalid ProNet release version; nothing changed.' >&2; exit 1; }
+printf 'Selected ProNet release: %s\n' "$VERSION"
 case "$(uname -m)" in
   x86_64) arch=amd64;;
   aarch64|arm64) arch=arm64;;

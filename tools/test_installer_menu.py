@@ -14,6 +14,16 @@ def function(name):
     return MENU[start:MENU.index('\n}\n', start) + 3]
 
 class InstallerTest(unittest.TestCase):
+    def test_latest_published_including_prereleases(self):
+        resolver = INSTALL[INSTALL.index('if [[ "$VERSION" == latest') : INSTALL.index('case "$(uname -m)"')]
+        fixture = '''set -euo pipefail
+VERSION=latest
+curl(){ printf '  "tag_name": "v3.10.2-pronet.6",\\n'; }
+'''
+        self.assertIn('Selected ProNet release: v3.10.2-pronet.6', self.run_shell(fixture + resolver))
+        explicit = 'set -euo pipefail; VERSION=v3.10.2-pronet.5; curl(){ return 99; };\n'
+        self.assertIn('Selected ProNet release: v3.10.2-pronet.5', self.run_shell(explicit + resolver))
+
     def run_shell(self, text, input=''):
         result = subprocess.run([BASH, '-c', text], input=input.encode('utf-8'), capture_output=True)
         out, err = result.stdout.decode('utf-8'), result.stderr.decode('utf-8')
