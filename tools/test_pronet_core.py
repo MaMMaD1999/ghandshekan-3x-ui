@@ -62,7 +62,7 @@ def main():
         users = [{'id': alice, 'email': 'alice', 'level': 0}, {'id': bob, 'email': 'bob', 'level': 0}]
         try:
             start('server', {
-                'log': {'loglevel': 'warning'}, 'stats': {},
+                'log': {'loglevel': 'debug'}, 'stats': {},
                 'api': {'tag': 'api', 'services': ['StatsService']},
                 'policy': {'levels': {'0': {'statsUserUplink': True, 'statsUserDownlink': True}}},
                 'inbounds': [
@@ -70,13 +70,14 @@ def main():
                      'settings': {'clients': users, 'decryption': 'none'}} for tag, p in [('a', a), ('b', b)]
                 ] + [{'tag': 'api-in', 'listen': '127.0.0.1', 'port': api, 'protocol': 'dokodemo-door',
                       'settings': {'address': '127.0.0.1'}}],
-                'outbounds': [{'tag': 'direct', 'protocol': 'freedom'}],
+                'outbounds': [{'tag': 'direct', 'protocol': 'freedom', 'settings': {
+                    'finalRules': [{'action': 'allow', 'ip': ['127.0.0.1/32'], 'port': str(web.server_port)}]}}],
                 'routing': {'rules': [{'type': 'field', 'inboundTag': ['api-in'], 'outboundTag': 'api'}]},
             }, api)
             for index, (identity, destination) in enumerate([(alice, a), (alice, b), (bob, a)]):
                 socks = port()
                 start(f'client-{index}', {
-                    'log': {'loglevel': 'warning'},
+                    'log': {'loglevel': 'debug'},
                     'inbounds': [{'listen': '127.0.0.1', 'port': socks, 'protocol': 'socks',
                                   'settings': {'auth': 'noauth'}}],
                     'outbounds': [{'protocol': 'vless', 'settings': {'vnext': [{
@@ -98,6 +99,10 @@ def main():
                     assert sum(values) == stats[f'user>>>{email}>>>traffic>>>{direction}']
             assert not any(f'pronet>>>{enc("b")}>>>{enc("bob")}>>>' in key for key in stats)
             print('PASS: real transfers preserve identity and separate each user/inbound without duplicate totals')
+        except Exception:
+            for log in root.glob('*.log'):
+                print(log.name, log.read_text(errors='replace'), file=sys.stderr)
+            raise
         finally:
             web.shutdown()
             for p in processes:
