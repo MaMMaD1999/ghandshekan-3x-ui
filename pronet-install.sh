@@ -34,6 +34,7 @@ systemctl stop x-ui 2>/dev/null || true
 printf 'Backup: %s\nStaging: %s\n' "$backup" "$stage"
 mkdir -p /usr/local/x-ui /etc/x-ui /var/log/x-ui
 cp -a "$stage/x-ui/." /usr/local/x-ui/
+install -m 755 /usr/local/x-ui/x-ui.sh /usr/bin/x-ui
 install -m 644 /usr/local/x-ui/x-ui.service.debian /etc/systemd/system/x-ui.service
 systemctl daemon-reload
 if [[ "$fresh" == 1 ]]; then

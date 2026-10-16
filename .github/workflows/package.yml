@@ -1,0 +1,81 @@
+name: ProNet packages
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*-pronet.*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+      - run: npm ci && npm run build && npm run typecheck
+        working-directory: frontend
+      - run: go test ./internal/xray ./internal/web/service ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
+      - uses: actions/checkout@v7
+        with:
+          repository: MaMMaD1999/pronet-xray-core
+          ref: 7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
+          path: .pronet-core
+      - run: go test ./app/dispatcher && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../custom-xray ./main
+        working-directory: .pronet-core
+      - name: Build and verify package
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y musl-tools
+          CC=musl-gcc CGO_ENABLED=1 go build -trimpath -ldflags='-s -w -linkmode external -extldflags -static' -o custom-panel .
+          mkdir package
+          cd package
+          base=https://github.com/MHSanaei/3x-ui/releases/download/v3.10.2
+          curl -fL --retry 3 "$base/x-ui-linux-$ARCH.tar.gz" -o upstream.tar.gz
+          curl -fL --retry 3 "$base/x-ui-linux-$ARCH.tar.gz.sha256" -o upstream.sha256
+          expected=$(awk '{print $1}' upstream.sha256)
+          echo "$expected  upstream.tar.gz" | sha256sum -c -
+          tar -xzf upstream.tar.gz
+          cp ../custom-panel x-ui/x-ui
+          cp ../custom-xray "x-ui/bin/xray-linux-$ARCH"
+          cp ../pronet-cli.sh x-ui/x-ui.sh
+          chmod +x x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-$ARCH"
+          ./x-ui/x-ui -v
+          "./x-ui/bin/xray-linux-$ARCH" version
+          bash -n ../pronet-install.sh ../pronet-cli.sh
+          tar -czf "../x-ui-linux-$ARCH.tar.gz" x-ui
+      - uses: actions/upload-artifact@v6
+        with:
+          name: package-${{ matrix.arch }}
+          path: x-ui-linux-*.tar.gz
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: release
+      - run: cd release && sha256sum x-ui-linux-*.tar.gz > checksums.txt
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* pronet-install.sh --prerelease --title "ProNet custom accounting $GITHUB_REF_NAME" --notes-file PRONET-RELEASE.md

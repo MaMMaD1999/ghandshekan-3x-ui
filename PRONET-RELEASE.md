@@ -1,0 +1,30 @@
+# ProNet custom accounting — test release
+
+Based on Sanaei 3x-ui v3.10.2 and its pinned Xray revision. Both master and execution nodes must use this package for detailed accounting. This is a custom distribution, not an official Sanaei release.
+
+- One shared client identity, with independent raw upload/download counters per inbound and user.
+- Inbound coefficients affect the shared client quota inside Sanaei. Raw counters remain independent.
+- Lifetime reports retain separate rows for each coefficient used. Resetting a quota does not erase reporting history.
+- The subscription page shows raw usage, coefficient, and billed usage; the client's name is the heading, followed by the subscription identifier. The configured subscription title appears above the announcement.
+- Authenticated capability discovery includes a check of the running custom core. ProNet edits use a narrow compare-and-set API.
+- Official panel/core self-updaters are blocked. Update the complete custom package to preserve accounting support.
+
+## Installation
+
+Use a clean test node first. Linux with systemd, amd64 or arm64; requires curl, tar, sha256sum and openssl. The installer verifies release checksums and retains existing configuration and program backups under `/var/backups/pronet`.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.1/pronet-install.sh) v3.10.2-pronet.1
+```
+
+The command is usable only after the corresponding release assets are published. On a fresh install, random login credentials and the panel path are printed. Configure HTTPS and firewall access before using the panel remotely. Existing credentials and settings are preserved.
+
+Non-unit coefficients are supported for VLESS, VMess, Trojan and Shadowsocks. Changing a coefficient applies it to the next traffic collection interval; historical rows are not recalculated. Like upstream, quota enforcement is periodic and can have a small polling overshoot. This initial release does not change that behavior.
+
+Old usage before custom accounting was enabled cannot be reconstructed into per-inbound detail. ProNet establishes a cutover baseline to avoid charging old cumulative usage again. Existing usage remains recorded separately.
+
+## Maintenance
+
+`x-ui start`, `x-ui stop`, `x-ui restart`, `x-ui status`, `x-ui log`, and `x-ui setting ...` are available. Use the versioned installer for updates. Do not replace only the core or downgrade a live database; restore the matching program/configuration backup instead.
+
+Source and build workflow are included. Upstream licenses and attribution remain intact. ProNet's runtime integration uses authenticated HTTP APIs only; SSH credentials are not part of this package or the application runtime.
