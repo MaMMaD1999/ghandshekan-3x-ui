@@ -18,6 +18,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+      - run: python3 tools/test_installer_menu.py
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -53,11 +54,11 @@ jobs:
           tar -xzf upstream.tar.gz
           cp ../custom-panel x-ui/x-ui
           cp ../custom-xray "x-ui/bin/xray-linux-$ARCH"
-          cp ../pronet-cli.sh x-ui/x-ui.sh
+          cp ../x-ui.sh x-ui/x-ui.sh
           chmod +x x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-$ARCH"
           ./x-ui/x-ui -v
           "./x-ui/bin/xray-linux-$ARCH" version
-          bash -n ../pronet-install.sh ../pronet-cli.sh
+          bash -n ../pronet-install.sh ../pronet-cli.sh ../x-ui.sh
           tar -czf "../x-ui-linux-$ARCH.tar.gz" x-ui
       - uses: actions/upload-artifact@v6
         with:

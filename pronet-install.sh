@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # No configuration is erased. Staging files and backups are retained for review.
-VERSION="${1:-v3.10.2-pronet.4}"
+VERSION="${1:-v3.10.2-pronet.5}"
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || exit 1
 [[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 for command in systemctl curl tar sha256sum openssl; do
@@ -80,9 +80,43 @@ if [[ "$fresh" == 1 ]]; then
   password=$(openssl rand -hex 16)
   panel_path="/$(openssl rand -hex 12)/"
   (cd /usr/local/x-ui; ./x-ui setting -username "$username" -password "$password" -port 2053 -webBasePath "$panel_path")
-  printf 'Username: %s\nPassword: %s\nPanel path: :2053%s\n' "$username" "$password" "$panel_path"
 fi
 systemctl enable --now x-ui
 sleep 3
 systemctl is-active --quiet x-ui
-printf 'Installed ProNet %s. Configure HTTPS before remote use.\n' "$VERSION"
+info=$(cd /usr/local/x-ui; ./x-ui setting -show true)
+panel_port=$(printf '%s\n' "$info" | sed -n 's/^port: //p')
+panel_path=$(printf '%s\n' "$info" | sed -n 's/^webBasePath: //p')
+panel_user=$(printf '%s\n' "$info" | sed -n 's/^username: //p')
+cert=$(cd /usr/local/x-ui; ./x-ui setting -getCert true | sed -n 's/^cert: //p')
+scheme=http
+panel_host="${PRONET_PANEL_HOST:-}"
+if [[ -n "$cert" && -f "$cert" ]]; then
+  scheme=https
+  if [[ -z "$panel_host" ]]; then
+    panel_host=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -Eo 'DNS:[^,[:space:]]+' | cut -d: -f2 | grep -v '\*' | head -n1 || true)
+  fi
+fi
+if [[ -z "$panel_host" ]]; then
+  panel_host=$(curl -4fsS --connect-timeout 2 --max-time 4 https://api4.ipify.org 2>/dev/null || true)
+  [[ "$panel_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || panel_host=''
+fi
+if [[ -z "$panel_host" ]]; then
+  read -r _ _ panel_host _ <<< "${SSH_CONNECTION:-}"
+  panel_host="${panel_host:-$(hostname -I | awk '{print $1}')}"
+fi
+[[ "$panel_host" != *:* ]] || panel_host="[$panel_host]"
+printf '\n========== ProNet installation complete ==========\nVersion: %s\n' "$VERSION"
+if [[ -n "$panel_host" ]]; then
+  printf 'Login URL: %s://%s:%s%s\n' "$scheme" "$panel_host" "$panel_port" "$panel_path"
+else
+  printf 'Login URL: %s://<SERVER-IP>:%s%s (public IP could not be detected)\n' "$scheme" "$panel_port" "$panel_path"
+fi
+if [[ "$fresh" == 1 ]]; then
+  printf 'Username: %s\nPassword: %s\n' "$username" "$password"
+else
+  printf 'Username: %s\nPassword: unchanged (stored as a hash; use x-ui menu option 7 to reset if needed).\n' "${panel_user:-unchanged}"
+fi
+printf 'Management menu: x-ui\nBackup: %s\n' "$backup"
+[[ "$scheme" == https ]] || printf 'HTTPS setup: x-ui -> 20 (SSL Certificate Management)\n'
+printf '==================================================\n'

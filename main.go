@@ -281,6 +281,7 @@ func showSetting(show bool) {
 		}()
 
 		fmt.Println("hasDefaultCredential:", hasDefaultCredential)
+		fmt.Println("username:", userModel.Username)
 		fmt.Println("port:", port)
 		fmt.Println("webBasePath:", webBasePath)
 	}

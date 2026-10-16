@@ -129,48 +129,27 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh)
-    if [[ $? == 0 ]]; then
-        if [[ $# == 0 ]]; then
-            start
-        else
-            start 0
-        fi
+    local version="${PRONET_VERSION:-v3.10.2-pronet.5}" temp
+    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Invalid custom release"; return 1; }
+    temp=$(mktemp) || return 1
+    if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/$version/pronet-install.sh" -o "$temp"; then
+        bash "$temp" "$version"
+        local result=$?
+        rm -f "$temp"
+        return "$result"
     fi
+    rm -f "$temp"
+    return 1
 }
 
 update() {
-    confirm "This function will update all x-ui components to the latest version, and the data will not be lost. Do you want to continue?" "y"
-    if [[ $? != 0 ]]; then
-        LOGE "Cancelled"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 0
-    fi
-    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh)
-    if [[ $? == 0 ]]; then
-        LOGI "Update is complete, Panel has automatically restarted "
-        before_show_menu
-    fi
+    confirm "Update the complete ProNet custom package, preserving settings?" "y" || return 0
+    install
 }
 
 update_dev() {
-    confirm "This will update x-ui to the latest DEV commit (the rolling 'dev-latest' build, not a stable release). Your data is preserved. Continue?" "y"
-    if [[ $? != 0 ]]; then
-        LOGE "Cancelled"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 0
-    fi
-    # XUI_UPDATE_TAG tells update.sh to install the dev-latest pre-release
-    # instead of the latest stable tag.
-    XUI_UPDATE_TAG="dev-latest" bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh)
-    if [[ $? == 0 ]]; then
-        LOGI "Dev update is complete, Panel has automatically restarted "
-        before_show_menu
-    fi
+    LOGI "Official/dev builds would remove custom accounting. Use Update for the ProNet release."
+    [[ $# != 0 ]] || before_show_menu
 }
 
 replace_xui_script() {
@@ -211,14 +190,7 @@ replace_xui_script() {
 # The menu must match the installed panel, so update it from that release's
 # tag; fall back to main only when no script is published for the version.
 installed_script_url() {
-    local ver
-    ver=$("${xui_folder}/x-ui" -v 2> /dev/null | tr -d '[:space:]')
-    if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -fsIL -o /dev/null "https://raw.githubusercontent.com/MHSanaei/3x-ui/v${ver}/x-ui.sh"; then
-        echo "https://raw.githubusercontent.com/MHSanaei/3x-ui/v${ver}/x-ui.sh"
-    else
-        echo -e "${yellow}No x-ui.sh published for the installed version (${ver:-unknown}), using main${plain}" >&2
-        echo "https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh"
-    fi
+    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.5/x-ui.sh"
 }
 
 update_menu() {
@@ -243,18 +215,10 @@ update_menu() {
 }
 
 legacy_version() {
-    echo -n "Enter the panel version (like 2.4.0):"
-    read -r tag_version
-
-    if [ -z "$tag_version" ]; then
-        echo "Panel version cannot be empty. Exiting."
-        exit 1
-    fi
-    # Use the entered panel version in the download link
-    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh") v$tag_version"
-
-    echo "Downloading and installing panel version $tag_version..."
-    eval $install_command
+    local version
+    read -rp "Custom release (for example v3.10.2-pronet.5): " version
+    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Only ProNet custom releases are accepted."; return 1; }
+    PRONET_VERSION="$version" install
 }
 
 # Function to handle the deletion of the script file
@@ -322,7 +286,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)${plain}"
+    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.5/pronet-install.sh) v3.10.2-pronet.5${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM
@@ -3504,14 +3468,14 @@ show_usage() {
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
-│  ${green}3X-UI Panel Management Script${plain}                │
+│  ${green}ProNet / 3X-UI Management${plain}                │
 │  ${green}0.${plain} Exit Script                               │
 │────────────────────────────────────────────────│
 │  ${green}1.${plain} Install                                   │
 │  ${green}2.${plain} Update                                    │
-│  ${green}3.${plain} Update to Dev Channel (latest commit)     │
+│  ${green}3.${plain} Official Dev Channel (disabled)     │
 │  ${green}4.${plain} Update Menu                               │
-│  ${green}5.${plain} Legacy Version                            │
+│  ${green}5.${plain} Select Custom Release                     │
 │  ${green}6.${plain} Uninstall                                 │
 │────────────────────────────────────────────────│
 │  ${green}7.${plain} Reset Username & Password                 │
@@ -3641,6 +3605,10 @@ show_menu() {
 
 if [[ $# > 0 ]]; then
     case $1 in
+        "setting")
+            shift
+            (cd "${xui_folder}" && ./x-ui setting "$@")
+            ;;
         "start")
             check_install 0 && start 0
             ;;
