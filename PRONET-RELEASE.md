@@ -14,10 +14,12 @@ Based on Sanaei 3x-ui v3.10.2 and its pinned Xray revision. Both master and exec
 Use a clean test node first. Linux with systemd, amd64 or arm64; requires curl, tar, sha256sum and openssl. The installer verifies release checksums and retains existing configuration and program backups under `/var/backups/pronet`.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.1/pronet-install.sh) v3.10.2-pronet.1
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.2/pronet-install.sh) v3.10.2-pronet.2
 ```
 
 The command is usable only after the corresponding release assets are published. On a fresh install, random login credentials and the panel path are printed. Configure HTTPS and firewall access before using the panel remotely. Existing credentials and settings are preserved.
+
+Existing PostgreSQL installations also require Python 3 and `pg_dump`; the database and service environment are backed up before the service is stopped. If backup fails, installation stops before replacing files. Backups are retained for manual rollback.
 
 Non-unit coefficients are supported for VLESS, VMess, Trojan and Shadowsocks. Changing a coefficient applies it to the next traffic collection interval; historical rows are not recalculated. Like upstream, quota enforcement is periodic and can have a small polling overshoot. This initial release does not change that behavior.
 
