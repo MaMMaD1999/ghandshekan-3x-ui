@@ -1,3 +1,4 @@
+import type { ProNetTrafficDetail } from '@/components/ProNetTrafficCards';
 import dayjs, { type Dayjs } from 'dayjs';
 import { ObjectUtil, NumberFormatter, SizeFormatter } from '@/utils';
 import { Protocols } from '@/schemas/primitives';
@@ -21,6 +22,8 @@ export interface FallbackParentRef {
 }
 
 export type DBInboundInit = Partial<{
+ detailedTraffic: ProNetTrafficDetail[];
+ trafficCoefficient: number;
   id: number;
   userId: number;
   up: number;
@@ -70,6 +73,8 @@ export function coerceInboundJsonField(value: unknown): Record<string, unknown> 
 }
 
 export class DBInbound {
+ detailedTraffic: ProNetTrafficDetail[] = [];
+ trafficCoefficient: number = 1;
   id: number;
   userId: number;
   up: number;

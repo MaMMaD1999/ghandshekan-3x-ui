@@ -427,7 +427,7 @@ func (s *InboundService) GetNodeInboundTrafficTotals() (map[string][2]int64, err
 }
 
 func adoptedWireChanged(c, snapIb *model.Inbound, adoptedSettings string) bool {
-	return c.Settings != adoptedSettings ||
+	return trafficRate(c) != trafficRate(snapIb) || c.Settings != adoptedSettings ||
 		c.Enable != snapIb.Enable ||
 		c.Remark != snapIb.Remark ||
 		c.SubSortIndex != normalizeSubSortIndex(snapIb.SubSortIndex) ||
@@ -449,6 +449,7 @@ func adoptedWireInbound(c, snapIb *model.Inbound, adoptedSettings string) *model
 	a.Enable = snapIb.Enable
 	a.Remark = snapIb.Remark
 	a.SubSortIndex = normalizeSubSortIndex(snapIb.SubSortIndex)
+	a.TrafficCoefficient = snapIb.TrafficCoefficient
 	// ExcludeFromSub stays master-authored: older nodes omit the field and
 	// would otherwise reset it to false on every heartbeat mirror.
 	a.Listen = snapIb.Listen
@@ -818,6 +819,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				Remark:               snapIb.Remark,
 				SubSortIndex:         normalizeSubSortIndex(snapIb.SubSortIndex),
 				ExcludeFromSub:       snapIb.ExcludeFromSub,
+				TrafficCoefficient:   snapIb.TrafficCoefficient,
 				Total:                snapIb.Total,
 				ExpiryTime:           snapIb.ExpiryTime,
 				Up:                   snapIb.Up,
@@ -867,6 +869,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			updates["enable"] = snapIb.Enable
 			updates["remark"] = snapIb.Remark
 			updates["sub_sort_index"] = normalizeSubSortIndex(snapIb.SubSortIndex)
+			if snapIb.TrafficCoefficient != nil {
+				updates["traffic_coefficient"] = *snapIb.TrafficCoefficient
+				c.TrafficCoefficient = snapIb.TrafficCoefficient
+			}
 			updates["listen"] = snapIb.Listen
 			updates["port"] = snapIb.Port
 			updates["protocol"] = snapIb.Protocol
@@ -1433,6 +1439,18 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		logger.Warning("setRemoteTraffic: lift activated expiries failed:", err)
 	}
 
+	for _, remote := range snap.Inbounds {
+		if remote == nil {
+			continue
+		}
+		central := tagToCentral[remote.Tag]
+		if central == nil {
+			continue
+		}
+		if err := mirrorDetailedTraffic(tx, remote, central, originGuidFor(remote)); err != nil {
+			return false, err
+		}
+	}
 	if err := tx.Commit().Error; err != nil {
 		return false, err
 	}

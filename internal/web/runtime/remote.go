@@ -844,6 +844,9 @@ func wireInbound(ib *model.Inbound, remoteNodeID int) url.Values {
 	v.Set("remark", ib.Remark)
 	v.Set("subSortIndex", strconv.Itoa(ib.SubSortIndex))
 	v.Set("excludeFromSub", strconv.FormatBool(ib.ExcludeFromSub))
+	if ib.TrafficCoefficient != nil {
+		v.Set("trafficCoefficient", strconv.FormatFloat(*ib.TrafficCoefficient, 'f', 6, 64))
+	}
 	v.Set("enable", strconv.FormatBool(ib.Enable))
 	v.Set("expiryTime", strconv.FormatInt(ib.ExpiryTime, 10))
 	v.Set("listen", ib.Listen)
@@ -978,4 +981,17 @@ func (r *Remote) FetchClientIpsByGuid(ctx context.Context) (map[string]map[strin
 		}
 	}
 	return out, nil
+}
+
+func (r *Remote) SetTrafficCoefficient(ctx context.Context, ib *model.Inbound, rate float64, expected *float64) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return err
+	}
+	payload := url.Values{"trafficCoefficient": []string{strconv.FormatFloat(rate, 'f', 6, 64)}}
+	if expected != nil {
+		payload.Set("expectedCoefficient", strconv.FormatFloat(*expected, 'f', 6, 64))
+	}
+	_, err = r.do(ctx, http.MethodPost, "panel/api/inbounds/"+strconv.Itoa(id)+"/trafficCoefficient", payload)
+	return err
 }

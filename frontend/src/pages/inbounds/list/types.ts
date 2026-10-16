@@ -1,3 +1,4 @@
+import type { ProNetTrafficDetail } from '@/components/ProNetTrafficCards';
 import type { NodeRecord } from '@/api/queries/useNodesQuery';
 import type { HostRecord } from '@/schemas/api/host';
 
@@ -22,6 +23,8 @@ export type ProtocolFlags = {
 };
 
 export interface DBInboundRecord extends ProtocolFlags {
+ detailedTraffic?: ProNetTrafficDetail[];
+ trafficCoefficient?: number;
   id: number;
   enable: boolean;
   remark: string;

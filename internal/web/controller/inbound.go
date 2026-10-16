@@ -73,6 +73,8 @@ func (a *InboundController) inboundServiceFor(c *gin.Context) *service.InboundSe
 
 // initRouter initializes the routes for inbound-related operations.
 func (a *InboundController) initRouter(g *gin.RouterGroup) {
+	g.GET("/pronet/capabilities", a.pronetCapabilities)
+	g.POST("/:id/trafficCoefficient", a.setTrafficCoefficient)
 	g.GET("/list", a.getInbounds)
 	g.GET("/list/slim", a.getInboundsSlim)
 	g.GET("/options", a.getInboundOptions)

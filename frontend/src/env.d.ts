@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface SubPageData {
+ detailedTraffic?: import("./components/ProNetTrafficCards").ProNetTrafficDetail[];
   sId?: string;
   enabled?: boolean;
   download?: string;

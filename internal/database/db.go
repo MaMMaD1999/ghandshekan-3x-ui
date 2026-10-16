@@ -82,6 +82,7 @@ func allModels() []any {
 		&model.InboundFallback{},
 		&model.Host{},
 		&model.NodeClientTraffic{},
+		&model.InboundTrafficDetail{},
 		&model.NodeClientIp{},
 		&model.ClientGlobalTraffic{},
 		&model.NodePendingReset{},
@@ -116,6 +117,12 @@ func migrateInboundExcludeFromSubColumn() error {
 }
 
 func initModels() error {
+	if db.Migrator().HasTable(&model.Inbound{}) && !db.Migrator().HasColumn(&model.Inbound{}, "TrafficCoefficient") {
+		if err := db.Migrator().AddColumn(&model.Inbound{}, "TrafficCoefficient"); err != nil {
+			return err
+		}
+	}
+
 	if err := migrateClientTrafficLastSubFetchColumn(); err != nil {
 		return err
 	}

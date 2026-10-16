@@ -83,6 +83,15 @@ func (j *XrayTrafficJob) Run() {
 	if err != nil {
 		logger.Warning("add inbound traffic failed:", err)
 	}
+
+	// Detail rows are not a second contribution to websocket/external totals.
+	ordinary := clientTraffics[:0]
+	for _, ct := range clientTraffics {
+		if ct == nil || ct.InboundTag == "" {
+			ordinary = append(ordinary, ct)
+		}
+	}
+	clientTraffics = ordinary
 	err, needRestart1 := j.outboundService.AddTraffic(traffics, clientTraffics)
 	if err != nil {
 		logger.Warning("add outbound traffic failed:", err)

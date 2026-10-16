@@ -197,6 +197,9 @@ func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
 		return nil, err
 	}
 	s.enrichClientStats(db, inbounds)
+	if err := attachDetailedTraffic(db, inbounds); err != nil {
+		return nil, err
+	}
 	s.annotateFallbackParents(db, inbounds)
 	s.annotateLocalOriginGuid(inbounds)
 	return inbounds, nil
@@ -248,6 +251,9 @@ func (s *InboundService) GetInboundsSlim(userId int) ([]*model.Inbound, error) {
 	// Slim feeds the panel UI only (masters poll the full list), so the badge
 	// math may see the cross-panel totals a master pushed.
 	s.overlayInboundsClientStats(db, inbounds)
+	if err := attachDetailedTraffic(db, inbounds); err != nil {
+		return nil, err
+	}
 	for _, ib := range inbounds {
 		ib.Settings = slimSettingsClients(ib.Settings)
 	}
@@ -557,6 +563,9 @@ func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 		return nil, err
 	}
 	s.enrichClientStats(db, inbounds)
+	if err := attachDetailedTraffic(db, inbounds); err != nil {
+		return nil, err
+	}
 	return inbounds, nil
 }
 
@@ -1229,6 +1238,10 @@ func (s *InboundService) normalizeMtprotoXrayPort(inbound *model.Inbound, oldSet
 // then saves the inbound to the database and optionally adds it to the running Xray instance.
 // Returns the created inbound, whether Xray needs restart, and any error.
 func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
+	if err := validateTrafficCoefficient(inbound); err != nil {
+		return inbound, false, err
+	}
+
 	inbound.Id = 0
 	if err := normalizeTuicSettings(inbound); err != nil {
 		return inbound, false, err
@@ -1268,6 +1281,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		if err := checkNodeCanHostProtocol(database.GetDB(), *inbound.NodeID, inbound.Protocol); err != nil {
 			return inbound, false, err
 		}
+	}
+	if err := validateTrafficCoefficient(inbound); err != nil {
+		return inbound, false, err
 	}
 	inbound.SubSortIndex = normalizeSubSortIndex(inbound.SubSortIndex)
 	if err := normalizeInboundShareAddressStrict(inbound); err != nil {
@@ -1720,6 +1736,9 @@ func (s *InboundService) GetInboundDetail(id int) (*model.Inbound, error) {
 	}
 	s.enrichClientStats(db, []*model.Inbound{inbound})
 	s.overlayInboundsClientStats(db, []*model.Inbound{inbound})
+	if err := attachDetailedTraffic(db, []*model.Inbound{inbound}); err != nil {
+		return nil, err
+	}
 	return inbound, nil
 }
 
@@ -1917,10 +1936,16 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	// Restore the stored NodeID before any host-scoped check so a node inbound
 	// stays scoped to its own node (the payload's nodeId is unreliable, often absent).
 	inbound.NodeID = oldInbound.NodeID
+	if inbound.TrafficCoefficient == nil {
+		inbound.TrafficCoefficient = oldInbound.TrafficCoefficient
+	}
 	if err := normalizeTuicSettings(inbound); err != nil {
 		return inbound, false, err
 	}
 	if err := s.normalizeAmneziaWGSettings(inbound, oldInbound.Settings); err != nil {
+		return inbound, false, err
+	}
+	if err := validateTrafficCoefficient(inbound); err != nil {
 		return inbound, false, err
 	}
 	inbound.SubSortIndex = normalizeSubSortIndex(inbound.SubSortIndex)
@@ -2073,6 +2098,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		oldInbound.Remark = inbound.Remark
 		oldInbound.SubSortIndex = inbound.SubSortIndex
 		oldInbound.ExcludeFromSub = inbound.ExcludeFromSub
+		oldInbound.TrafficCoefficient = inbound.TrafficCoefficient
 		oldInbound.Enable = inbound.Enable
 		oldInbound.ExpiryTime = inbound.ExpiryTime
 		oldInbound.TrafficReset = inbound.TrafficReset

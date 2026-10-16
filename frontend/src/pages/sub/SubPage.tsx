@@ -17,6 +17,7 @@ import SubAppsTab from './SubAppsTab';
 import SubConfigsTab from './SubConfigsTab';
 import SubHeader from './SubHeader';
 import SubHero from './SubHero';
+import ProNetTrafficCards from '@/components/ProNetTrafficCards';
 import SubLinksTab from './SubLinksTab';
 import { buildSubApps, daysUntil, detectPlatform, resolveSubStatus } from './subPageModel';
 import './SubPage.css';
@@ -146,8 +147,10 @@ export default function SubPage() {
               lang={lang}
               onLangChange={onLangChange}
             />
+            {subTitle && <h2 className="sub-brand-title" dir="auto" style={{marginBlock:16}}>{subTitle}</h2>}
             {announce && <Alert type="info" showIcon title={announce} className="sub-announce" />}
             <SubHero {...heroData} lang={lang} />
+            <ProNetTrafficCards rows={subData.detailedTraffic || []} />
             {tabs.length > 0 && <Tabs className="sub-tabs" tabBarGutter={24} items={tabs} />}
             {(updateHours > 0 || subSupportUrl) && (
               <footer className="sub-footer">

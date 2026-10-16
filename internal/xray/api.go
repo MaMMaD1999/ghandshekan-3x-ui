@@ -852,7 +852,9 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 			lastValue = 0
 		}
 		value := stat.Value - lastValue
-		if matches := trafficRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+		if processDetailedTraffic(stat.Name, value, emailTrafficMap) {
+			continue
+		} else if matches := trafficRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
 			processTraffic(matches, value, tagTrafficMap)
 		} else if matches := clientTrafficRegex.FindStringSubmatch(stat.Name); len(matches) == 3 {
 			processClientTraffic(matches, value, emailTrafficMap)

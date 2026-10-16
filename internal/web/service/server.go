@@ -1085,6 +1085,11 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
+ return fmt.Errorf("ProNet accounting requires its bundled core; update the ProNet panel package instead")
+}
+
+// retained upstream implementation for future reviewed core rebases
+func (s *ServerService) updateOfficialXrayDisabled(version string) error {
 	versions, err := s.GetXrayVersions()
 	if err != nil {
 		return err
