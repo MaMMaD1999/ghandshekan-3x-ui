@@ -1,6 +1,9 @@
 # ProNet custom accounting — test release
 
-## v3.10.2-pronet.8
+## v3.10.2-pronet.9
+
+- Fix the embedded panel version so installed panels report the matching custom release and stop offering the same update repeatedly.
+- Includes the node-host synchronization and node-name-free subscription remarks from v3.10.2-pronet.8.
 
 - Node host overrides are synchronized on every successful traffic snapshot, so changes to an already-adopted inbound update the ProNet subscription links. A successful empty host list clears stale overrides; a failed host fetch keeps the last known configuration.
 - No host rows are rewritten when their settings are unchanged.
@@ -20,7 +23,7 @@ Based on Sanaei 3x-ui v3.10.2 and its pinned Xray revision. Both master and exec
 Use a clean test node first. Linux with systemd, amd64 or arm64; requires curl, tar, sha256sum and openssl. The installer verifies release checksums and retains existing configuration and program backups under `/var/backups/pronet`.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.8/pronet-install.sh) v3.10.2-pronet.8
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.9/pronet-install.sh) v3.10.2-pronet.9
 ```
 
 The command is usable only after the corresponding release assets are published. On a fresh install, random login credentials and the panel path are printed. Configure HTTPS and firewall access before using the panel remotely. Existing credentials and settings are preserved.
