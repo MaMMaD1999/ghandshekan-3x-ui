@@ -835,9 +835,9 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			if newIb.Tag != snapIb.Tag {
 				tagToCentral[newIb.Tag] = &newIb
 			}
-			if rows := adoptedHostRows(snap.HostGroups, snapIb.Id, newIb.Id); len(rows) > 0 {
-				if err := tx.Create(&rows).Error; err != nil {
-					logger.Warningf("setRemoteTraffic: adopt host rows for tag %q failed: %v", newIb.Tag, err)
+			if snap.HostGroups != nil {
+				if _, err := syncAdoptedHostRows(tx, snap.HostGroups, nodeID, snapIb.Id, newIb.Id); err != nil {
+					return false, fmt.Errorf("sync hosts for newly adopted inbound %q: %w", newIb.Tag, err)
 				}
 			}
 			newInboundIDs[newIb.Id] = struct{}{}
@@ -1040,6 +1040,13 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		c, ok := tagToCentral[snapIb.Tag]
 		if !ok {
 			continue
+		}
+		if snap.HostGroups != nil {
+			changed, err := syncAdoptedHostRows(tx, snap.HostGroups, nodeID, snapIb.Id, c.Id)
+			if err != nil {
+				return false, fmt.Errorf("sync hosts for inbound %q: %w", c.Tag, err)
+			}
+			structuralChange = structuralChange || changed
 		}
 		snapEmails := make(map[string]struct{}, len(snapIb.ClientStats))
 		// Parsed once per inbound on the first renewal candidate, not per client.

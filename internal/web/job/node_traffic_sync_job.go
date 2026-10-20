@@ -407,19 +407,16 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 	syncCanAdopt := syncCanAdoptInbounds(n, snap.ManagedAliases)
 	service.FilterNodeSnapshot(n, snap)
 	_, _, dirty, _, _ := j.nodeService.NodeSyncState(n.Id)
-	if !dirty {
-		if pending, checkErr := j.inboundService.SnapshotHasUnadoptedInbounds(n.Id, snap); checkErr != nil {
-			logger.Warningf("node traffic sync: unadopted-inbound check for %s failed: %v", n.Name, checkErr)
-		} else if pending {
-			hostCtx, hostCancel := context.WithTimeout(context.Background(), nodeTrafficSyncRequestTimeout)
-			groups, hgErr := rt.FetchHostGroups(hostCtx)
-			hostCancel()
-			if hgErr != nil {
-				logger.Debugf("node traffic sync: fetch host groups from %s failed: %v", n.Name, hgErr)
-			} else {
-				snap.HostGroups = groups
-			}
-		}
+	// Host settings are part of the node's subscription configuration. Fetch
+	// them every traffic snapshot so edits on an already-adopted inbound reach
+	// the central panel too; a failed fetch leaves the last known hosts intact.
+	hostCtx, hostCancel := context.WithTimeout(context.Background(), nodeTrafficSyncRequestTimeout)
+	groups, hgErr := rt.FetchHostGroups(hostCtx)
+	hostCancel()
+	if hgErr != nil {
+		logger.Debugf("node traffic sync: fetch host groups from %s failed: %v", n.Name, hgErr)
+	} else {
+		snap.HostGroups = groups
 	}
 	changed, err := j.inboundService.SetRemoteTraffic(n.Id, snap, dirty, justPushed)
 	if err != nil {
