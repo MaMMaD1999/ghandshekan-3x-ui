@@ -28,6 +28,40 @@ func TestProNetFractionalRemainder(t *testing.T) {
 	}
 }
 
+func TestProNetLastRemarkSurvivesRenameDeletionAndFinalTraffic(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	ib := model.Inbound{Tag: "in-2087-tcp", Remark: "Germany original", Protocol: model.VLESS, Settings: `{}`, StreamSettings: `{}`}
+	if err := db.Create(&ib).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := model.InboundTrafficDetail{InboundTag: ib.Tag, Email: "name-history", RateParts: 1000000, UpdatedAt: 60000, RawDown: 20, BilledDown: 20}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := recordTrafficHistory(db, row, 0, 20, 0, 20); err != nil {
+		t.Fatal(err)
+	}
+	ib.Remark = "Germany final"
+	if err := preserveTrafficRemark(db, &ib); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&ib).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := weightDetailedTraffic(db, []*xray.ClientTraffic{{Email: row.Email, InboundTag: ib.Tag, Down: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	lifetime := ProNetSubscriptionTraffic([]string{row.Email})
+	if len(lifetime) != 1 || lifetime[0].InboundName != ib.Remark || lifetime[0].BilledDown != 25 {
+		t.Fatalf("lifetime: %+v", lifetime)
+	}
+	ranged, _, err := ProNetTrafficRange([]string{row.Email}, 60000, 120000)
+	if err != nil || len(ranged) != 1 || ranged[0].InboundName != ib.Remark || ranged[0].BilledDown != 20 {
+		t.Fatalf("range: %+v %v", ranged, err)
+	}
+}
+
 func TestProNetTrafficHistoryBucketsAccumulateWithoutChangingLifetimeSemantics(t *testing.T) {
 	setupConflictDB(t)
 	db := database.GetDB()

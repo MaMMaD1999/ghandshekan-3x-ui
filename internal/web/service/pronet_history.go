@@ -5,7 +5,28 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"strings"
 )
+
+// Keep labels independent of inbound lifetime without rewriting any counters.
+func preserveTrafficRemark(tx *gorm.DB, ib *model.Inbound) error {
+	if ib == nil || strings.TrimSpace(ib.Remark) == "" {
+		return nil
+	}
+	origin := ib.OriginNodeGuid
+	if ib.NodeID == nil {
+		origin = ""
+	}
+	for _, table := range []any{&model.InboundTrafficDetail{}, &model.InboundTrafficHistory{}} {
+		if !tx.Migrator().HasTable(table) {
+			continue
+		}
+		if err := tx.Model(table).Where("origin_guid = ? AND inbound_tag = ?", origin, ib.Tag).Update("inbound_name", ib.Remark).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func recordTrafficHistory(tx *gorm.DB, detail model.InboundTrafficDetail, up, down, billedUp, billedDown int64) error {
 	if !tx.Migrator().HasTable(&model.InboundTrafficHistory{}) {
@@ -35,12 +56,30 @@ func nameTrafficRows(db *gorm.DB, rows []model.InboundTrafficDetail) {
 		return
 	}
 	names := make(map[string]string)
+	tags := make([]string, 0, len(rows))
+	emails := make([]string, 0, len(rows))
+	for _, row := range rows {
+		tags = append(tags, row.InboundTag)
+		emails = append(emails, row.Email)
+	}
+	if len(tags) == 0 {
+		return
+	}
+	var saved []model.InboundTrafficDetail
+	if db.Migrator().HasTable(&model.InboundTrafficDetail{}) {
+		db.Select("origin_guid", "inbound_tag", "inbound_name", "updated_at").Where("inbound_tag IN ? AND email IN ? AND inbound_name <> ''", tags, emails).Order("updated_at ASC").Find(&saved)
+		for _, row := range saved {
+			names[row.OriginGuid+"\x00"+row.InboundTag] = row.InboundName
+		}
+	}
 	for _, ib := range inbounds {
 		origin := ib.OriginNodeGuid
 		if ib.NodeID == nil {
 			origin = ""
 		}
-		names[origin+"\x00"+ib.Tag] = ib.Remark
+		if strings.TrimSpace(ib.Remark) != "" {
+			names[origin+"\x00"+ib.Tag] = ib.Remark
+		}
 	}
 	for i := range rows {
 		if name := names[rows[i].OriginGuid+"\x00"+rows[i].InboundTag]; name != "" {

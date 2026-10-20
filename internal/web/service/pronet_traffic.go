@@ -153,7 +153,9 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 			}
 			detail.RemainderUp, detail.RemainderDown = ru, rd
 			detail.UpdatedAt = time.Now().UnixMilli()
-			detail.InboundName = inbound.Remark
+			if inbound.Remark != "" {
+				detail.InboundName = inbound.Remark
+			}
 			if err = recordTrafficHistory(tx, detail, part.Up, part.Down, up, down); err != nil {
 				return nil, err
 			}

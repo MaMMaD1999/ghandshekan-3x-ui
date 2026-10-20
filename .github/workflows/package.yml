@@ -26,9 +26,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '26'
-      - run: npm ci && npm run build && npm run typecheck && npm run test -- src/test/panel-version.test.ts
+      - run: npm ci && npm run build && npm run typecheck && npm run test -- src/test/panel-version.test.ts src/test/pronet-traffic-cards.test.tsx
         working-directory: frontend
-      - run: go test ./internal/xray ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
+      - run: go test ./internal/xray ./internal/database ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
       - uses: actions/checkout@v7
         with:
           repository: MaMMaD1999/pronet-xray-core

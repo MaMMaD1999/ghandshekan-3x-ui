@@ -861,6 +861,15 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		if !dirty && snapshotDropsEveryHubClient(tx, c.Id, adoptedSettings) {
 			degradedInbounds[c.Id] = c.Tag
 		} else if !dirty {
+			if c.Remark != snapIb.Remark {
+				label := *c
+				if strings.TrimSpace(snapIb.Remark) != "" {
+					label.Remark = snapIb.Remark
+				}
+				if err := preserveTrafficRemark(tx, &label); err != nil {
+					return false, err
+				}
+			}
 			// Defer lifecycle lift until after client_traffics absorbs this tick's
 			// deltas so quota stale-disable matches SQL (#6228).
 			pendingAdopts = append(pendingAdopts, pendingAdopt{
@@ -1021,6 +1030,9 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 					return false, err
 				}
 			}
+		}
+		if err := preserveTrafficRemark(tx, &c); err != nil {
+			return false, err
 		}
 		if err := s.clientService.DetachInbound(tx, c.Id); err != nil {
 			return false, err

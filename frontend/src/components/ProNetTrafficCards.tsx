@@ -17,7 +17,7 @@ export default function ProNetTrafficCards({rows, history = false}: {rows: ProNe
  const [selectedRange, setSelectedRange] = useState<[string, string] | null>(null);
  const request = useRef(0);
  if(!rows.length && !history) return null;
- const shown = filtered ?? rows;
+ const shown = (filtered ?? rows).filter(row => row.billedUp + row.billedDown >= 10 * 1024 * 1024);
  return <section style={{marginBlock:20}} aria-label={fa?'جزئیات مصرف':'Traffic breakdown'}>
  <h3>{fa?'جزئیات مصرف ثبت‌شده':'Recorded traffic breakdown'}</h3>
  <p style={{opacity:0.65,fontSize:12}}>{fa?'مصرف خام و کسرشده به تفکیک ضریب؛ سابقه با تمدید یا تغییر ضریب پاک نمی‌شود.':'Raw and billed lifetime usage by coefficient; quota resets do not erase this history.'}</p>
@@ -42,7 +42,7 @@ export default function ProNetTrafficCards({rows, history = false}: {rows: ProNe
  {shown.length === 0 && <p>{fa?'مصرف ثبت‌شده‌ای در این بازه نیست.':'No recorded usage in this range.'}</p>}
  <div aria-busy={loading} style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:12}}>
  {shown.map(r=><article key={`${r.originGuid}:${r.inboundTag}:${r.email}:${r.rateParts}`} style={{padding:16,border:'1px solid var(--ant-color-border, #49515d)',borderRadius:14,background:'var(--ant-color-fill-quaternary, transparent)'}}>
- <strong dir="auto">{r.inboundName || r.inboundTag}</strong><div dir="auto" style={{opacity:0.65,fontSize:12}}>{r.email}</div>
+ <strong dir="auto">{r.inboundName || (fa?'اینباند حذف‌شده':'Deleted inbound')}</strong><div dir="auto" style={{opacity:0.65,fontSize:12}}>{r.email}</div>
  <dl style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8}}>
  <dt>{fa?'مصرف واقعی':'Actual usage'}</dt><dd style={{margin:0}} dir="ltr">{bytes(r.rawUp+r.rawDown)}</dd>
  <dt>{fa?'ضریب مصرف':'Coefficient'}</dt><dd style={{margin:0}} dir="ltr">× {r.rateParts/1000000}</dd>

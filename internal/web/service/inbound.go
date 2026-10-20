@@ -1618,6 +1618,11 @@ func (s *InboundService) delInbound(id int) (bool, func(), error) {
 	}
 
 	if err := db.Transaction(func(tx *gorm.DB) error {
+		if loadErr == nil {
+			if err := preserveTrafficRemark(tx, &ib); err != nil {
+				return err
+			}
+		}
 		if err := s.clientService.DetachInbound(tx, id); err != nil {
 			return err
 		}
@@ -1999,6 +2004,13 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 			return err
 		}
 		running := *stored
+		label := *stored
+		if strings.TrimSpace(inbound.Remark) != "" {
+			label.Remark = inbound.Remark
+		}
+		if err := preserveTrafficRemark(tx, &label); err != nil {
+			return err
+		}
 		oldInbound = stored
 		// The form posts back the clients and enable it loaded; both have their
 		// own endpoints, so only a master's push may change them here.

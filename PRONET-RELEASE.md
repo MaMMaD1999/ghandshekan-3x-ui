@@ -1,5 +1,11 @@
 # ProNet custom accounting — test release
 
+## v3.10.2-pronet.12
+
+- Subscription traffic cards hide entries charged less than 10 MiB in the selected range. All byte counters and accounting APIs retain those entries unchanged.
+- Persist the last inbound remark across edits, deletion, and node synchronization; resolve dated rows from the retained lifetime label. Upgrade backfills labels for existing inbounds without changing counters.
+- Existing entries whose inbound was deleted before any label was stored require recovery from a backup; the page no longer exposes raw transport tags as a substitute name.
+
 ## v3.10.2-pronet.11
 
 - Reset network counters no longer wrap into enormous transfer rates or block node heartbeat updates. Masters also discard invalid rates reported by older nodes while retaining node version, latency and health.
