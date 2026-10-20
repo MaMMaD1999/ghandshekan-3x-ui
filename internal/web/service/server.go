@@ -657,10 +657,8 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		if lastStatus != nil {
 			duration := now.Sub(lastStatus.T)
 			seconds := float64(duration) / float64(time.Second)
-			up := uint64(float64(status.NetTraffic.Sent-lastStatus.NetTraffic.Sent) / seconds)
-			down := uint64(float64(status.NetTraffic.Recv-lastStatus.NetTraffic.Recv) / seconds)
-			status.NetIO.Up = up
-			status.NetIO.Down = down
+			status.NetIO.Up = counterRate(status.NetTraffic.Sent, lastStatus.NetTraffic.Sent, seconds)
+			status.NetIO.Down = counterRate(status.NetTraffic.Recv, lastStatus.NetTraffic.Recv, seconds)
 			if seconds > 0 && status.NetTraffic.PktSent >= lastStatus.NetTraffic.PktSent {
 				status.NetIO.PktUp = uint64(float64(status.NetTraffic.PktSent-lastStatus.NetTraffic.PktSent) / seconds)
 			}
@@ -1085,7 +1083,7 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
- return fmt.Errorf("ProNet accounting requires its bundled core; update the ProNet panel package instead")
+	return fmt.Errorf("ProNet accounting requires its bundled core; update the ProNet panel package instead")
 }
 
 // retained upstream implementation for future reviewed core rebases

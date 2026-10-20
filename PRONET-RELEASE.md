@@ -1,5 +1,10 @@
 # ProNet custom accounting — test release
 
+## v3.10.2-pronet.11
+
+- Reset network counters no longer wrap into enormous transfer rates or block node heartbeat updates. Masters also discard invalid rates reported by older nodes while retaining node version, latency and health.
+- Includes the installer, management menu, custom Docker core and verified-update improvements below.
+
 ## v3.10.2-pronet.10
 
 - Installation and web updates use the newest complete published release from this repository, including custom prereleases. Drafts and incomplete packages are ignored.

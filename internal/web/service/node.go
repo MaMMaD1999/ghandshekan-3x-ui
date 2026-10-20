@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -977,6 +978,17 @@ func (s *NodeService) UpdatePanels(ids []int, dev bool) ([]NodeUpdateResult, err
 }
 
 func (s *NodeService) UpdateHeartbeat(id int, p HeartbeatPatch) error {
+	// Older nodes may underflow a reset interface counter. Discard invalid
+	// unsigned values instead of letting SQLite reject the entire heartbeat.
+	if p.NetUp > math.MaxInt64 {
+		p.NetUp = 0
+	}
+	if p.NetDown > math.MaxInt64 {
+		p.NetDown = 0
+	}
+	if p.UptimeSecs > math.MaxInt64 {
+		p.UptimeSecs = 0
+	}
 	db := database.GetDB()
 	updates := map[string]any{
 		"status":         p.Status,
