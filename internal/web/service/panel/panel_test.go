@@ -24,12 +24,25 @@ func TestIsNewerVersion(t *testing.T) {
 		{"v2.9.3", "2.9.3", false},
 		{"v2.9.2", "2.9.3", false},
 		{"v3.0.0", "2.9.3", true},
+		{"v3.10.2-pronet.7", "3.10.2-pronet.6", true},
+		{"v3.10.2-pronet.6", "v3.10.2-pronet.6", false},
+		{"v3.10.2-pronet.6", "v3.10.2-pronet.7", false},
+		{"v3.10.3-pronet.1", "v3.10.2-pronet.99", true},
 	}
 
 	for _, tc := range cases {
 		if got := isNewerVersion(tc.latest, tc.current); got != tc.want {
 			t.Fatalf("isNewerVersion(%q, %q) = %v, want %v", tc.latest, tc.current, got, tc.want)
 		}
+	}
+}
+
+func TestLatestReleaseUsesOwnCompleteCustomRelease(t *testing.T) {
+	if got, want := isNewerVersion("v3.10.2-pronet.7", "v3.10.2-pronet.6"), true; got != want {
+		t.Fatalf("custom release comparison = %v, want %v", got, want)
+	}
+	if got, want := isNewerVersion("v3.10.2-pronet.6", "v3.10.2-pronet.6"), false; got != want {
+		t.Fatalf("equal custom release comparison = %v, want %v", got, want)
 	}
 }
 

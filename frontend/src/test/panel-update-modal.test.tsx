@@ -33,14 +33,11 @@ describe('panel update modal', () => {
       <PanelUpdateModal
         open
         info={{
-          channel: 'dev',
-          currentVersion: 'dev+old',
-          latestVersion: 'dev+new',
-          currentCommit: 'old',
-          latestCommit: 'new',
+          channel: 'stable',
+          currentVersion: '3.10.2-pronet.6',
+          latestVersion: '3.10.2-pronet.7',
           updateAvailable: true,
         }}
-        devChannelEnable
         onClose={onClose}
         onBusy={onBusy}
       />,
@@ -56,7 +53,7 @@ describe('panel update modal', () => {
     expect(HttpUtil.post).toHaveBeenCalledWith('/panel/api/server/updatePanel');
     expect(onBusy).toHaveBeenCalledWith({
       busy: true,
-      tip: 'Installation is in progress, please do not refresh this page (dev+new)',
+      tip: 'Installation is in progress, please do not refresh this page (3.10.2-pronet.7)',
     });
   });
 });

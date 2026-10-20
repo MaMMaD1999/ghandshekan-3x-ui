@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var SIGUSR2 = syscall.Signal(31)
 var SIGUSR1 = syscall.Signal(0)
 
 // GetConnectionCount returns the number of active connections for the specified protocol ("tcp" or "udp").

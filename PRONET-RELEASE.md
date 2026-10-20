@@ -5,16 +5,17 @@ Based on Sanaei 3x-ui v3.10.2 and its pinned Xray revision. Both master and exec
 - One shared client identity, with independent raw upload/download counters per inbound and user.
 - Inbound coefficients affect the shared client quota inside Sanaei. Raw counters remain independent.
 - Lifetime reports retain separate rows for each coefficient used. Resetting a quota does not erase reporting history.
-- The subscription page shows raw usage, coefficient, and billed usage; the client's name is the heading, followed by the subscription identifier. The configured subscription title appears above the announcement.
+- The subscription page shows raw usage, coefficient, and billed usage; the client's name is the heading, followed by the subscription identifier. The configured subscription title appears above the announcement. Traffic history can be filtered by date from the upgrade onward; older lifetime totals remain under “All time”. Node history is timed when the master receives its periodic traffic snapshot.
+- Inbound usage cards display the panel's inbound remark, falling back to the Xray tag only when the inbound has no remark.
 - Authenticated capability discovery includes a check of the running custom core. ProNet edits use a narrow compare-and-set API.
-- Official panel/core self-updaters are blocked. Update the complete custom package to preserve accounting support.
+- The panel checks this fork's complete, checksum-verified releases and can update its panel, bundled Xray core, and management menu together. Updates create a database and binary backup first. The official Sanaei release feed is not used for custom update checks.
 
 ## Installation
 
 Use a clean test node first. Linux with systemd, amd64 or arm64; requires curl, tar, sha256sum and openssl. The installer verifies release checksums and retains existing configuration and program backups under `/var/backups/pronet`.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.6/pronet-install.sh) v3.10.2-pronet.6
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.7/pronet-install.sh) v3.10.2-pronet.7
 ```
 
 The command is usable only after the corresponding release assets are published. On a fresh install, random login credentials and the panel path are printed. Configure HTTPS and firewall access before using the panel remotely. Existing credentials and settings are preserved.

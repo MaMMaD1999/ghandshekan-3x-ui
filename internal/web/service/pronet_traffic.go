@@ -153,6 +153,10 @@ func weightDetailedTraffic(tx *gorm.DB, rows []*xray.ClientTraffic) ([]*xray.Cli
 			}
 			detail.RemainderUp, detail.RemainderDown = ru, rd
 			detail.UpdatedAt = time.Now().UnixMilli()
+			detail.InboundName = inbound.Remark
+			if err = recordTrafficHistory(tx, detail, part.Up, part.Down, up, down); err != nil {
+				return nil, err
+			}
 			// Empty local origin and a free (zero) rate are valid key parts.
 			// Save treats zero-valued primary keys as new rows; use an explicit
 			// upsert so subsequent polls accumulate instead of failing uniqueness.
@@ -198,6 +202,7 @@ func attachDetailedTraffic(db *gorm.DB, inbounds []*model.Inbound) error {
 				origin = ""
 			}
 			if row.InboundTag == ib.Tag && row.OriginGuid == origin {
+				row.InboundName = ib.Remark
 				ib.DetailedTraffic = append(ib.DetailedTraffic, row)
 			}
 		}
@@ -214,6 +219,7 @@ func mirrorDetailedTraffic(tx *gorm.DB, remote, central *model.Inbound, origin s
 		}
 		r.OriginGuid = origin
 		r.InboundTag = central.Tag
+		r.InboundName = central.Remark
 		r.RemainderUp = 0
 		r.RemainderDown = 0
 		var old model.InboundTrafficDetail
@@ -223,6 +229,12 @@ func mirrorDetailedTraffic(tx *gorm.DB, remote, central *model.Inbound, origin s
 		}
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		// First snapshot is a baseline, not traffic that occurred just now.
+		if err == nil && r.RawUp >= old.RawUp && r.RawDown >= old.RawDown && r.BilledUp >= old.BilledUp && r.BilledDown >= old.BilledDown {
+			if e := recordTrafficHistory(tx, r, r.RawUp-old.RawUp, r.RawDown-old.RawDown, r.BilledUp-old.BilledUp, r.BilledDown-old.BilledDown); e != nil {
+				return e
+			}
 		}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error; err != nil {
 			return err

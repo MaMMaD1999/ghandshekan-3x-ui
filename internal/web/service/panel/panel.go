@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/version"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/global"
@@ -28,9 +30,7 @@ import (
 // It handles panel restart, updates, and system-level panel controls.
 type PanelService struct{}
 
-// PanelUpdateInfo contains the current and latest available panel versions.
-// On the dev channel the version fields carry a "dev+<sha>" label and the commit
-// fields hold the short SHAs that drive the update-available decision.
+// PanelUpdateInfo contains the current and latest available ProNet versions.
 type PanelUpdateInfo struct {
 	Channel         string `json:"channel"`
 	CurrentVersion  string `json:"currentVersion"`
@@ -41,7 +41,7 @@ type PanelUpdateInfo struct {
 }
 
 const (
-	panelUpdaterURL      = "https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh"
+	panelUpdaterURL      = "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/%s/pronet-update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	// devReleaseTag is the fixed-tag rolling pre-release the CI force-moves to the
 	// newest main commit; the dev update channel installs from it.
@@ -92,11 +92,14 @@ var releaseCommitRegex = regexp.MustCompile(`(?i)commit=([0-9a-f]{7,40})`)
 // genuinely wedged run (alive but hung forever) can never lock out retries
 // permanently, even on the PID-tracked path.
 var (
-	updateMu      sync.Mutex
-	updateRunning bool
-	updateStarted time.Time
-	updateRunID   int64
-	updatePID     int
+	updateMu         sync.Mutex
+	updateRunning    bool
+	updateStarted    time.Time
+	updateRunID      int64
+	updatePID        int
+	releaseMu        sync.Mutex
+	cachedReleaseTag string
+	cachedReleaseAt  time.Time
 )
 
 const (
@@ -126,13 +129,10 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 	return nil
 }
 
-// GetUpdateInfo checks GitHub for the latest 3x-ui release. When the dev channel
-// is enabled on a dev build it compares commits against the rolling dev release;
-// otherwise it compares versions against the latest stable tag.
+// GetUpdateInfo checks the latest complete ProNet release published in the
+// custom fork. Upstream releases and the rolling development channel are not
+// used by ProNet installations.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
-	if devChannelActive() {
-		return getDevUpdateInfo()
-	}
 	latest, err := fetchLatestPanelVersion()
 	if err != nil {
 		return nil, err
@@ -178,18 +178,20 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
 	}, nil
 }
 
-// StartUpdate starts the official updater using this panel's own channel
-// setting. Returns the run ID to pass to GetUpdateStatus so the caller can
-// tell this run's result apart from a stale one.
+// StartUpdate starts the updater for the latest complete ProNet release.
+// Returns the run ID to pass to GetUpdateStatus so callers can distinguish
+// this run from a stale result.
 func (s *PanelService) StartUpdate() (int64, error) {
-	return s.startUpdate(devChannelActive())
+	return s.startUpdate(false)
 }
 
-// StartUpdateChannel runs the updater against an explicitly chosen channel,
-// overriding the local dev-channel setting. Used by the master node updater so
-// a node can be moved to the dev channel from the central panel.
+// StartUpdateChannel preserves the node-update API contract. ProNet nodes only
+// accept published custom releases; upstream dev-channel requests are rejected.
 func (s *PanelService) StartUpdateChannel(dev bool) (int64, error) {
-	return s.startUpdate(dev)
+	if dev {
+		return 0, fmt.Errorf("ProNet updates use published custom releases only")
+	}
+	return s.startUpdate(false)
 }
 
 // GetUpdateStatus reports the outcome of the most recently launched panel
@@ -214,9 +216,17 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
 }
 
 func (s *PanelService) startUpdate(useDev bool) (int64, error) {
-	return 0, fmt.Errorf("ProNet accounting: use the ProNet package installer to update panel and core together")
-}
-func (s *PanelService) upstreamUpdateDisabled(useDev bool) (int64, error) {
+	if useDev {
+		return 0, fmt.Errorf("ProNet updates use published custom releases only; disable the development channel")
+	}
+	latest, err := fetchLatestPanelVersion()
+	if err != nil {
+		return 0, err
+	}
+	if !isNewerVersion(latest, config.GetBaseVersion()) {
+		return 0, fmt.Errorf("ProNet is already up to date")
+	}
+
 	runID := time.Now().UnixNano()
 	if !acquireUpdateSlot(runID) {
 		return 0, fmt.Errorf("a panel update is already in progress")
@@ -237,7 +247,48 @@ func (s *PanelService) upstreamUpdateDisabled(useDev bool) (int64, error) {
 		return 0, fmt.Errorf("bash is required to run the panel updater: %w", err)
 	}
 
-	scriptPath, err := downloadPanelUpdater()
+	backup := filepath.Join(config.GetDBFolderPath(), "pronet-backups", strconv.FormatInt(runID, 10))
+	if err := os.MkdirAll(backup, 0700); err != nil {
+		return 0, err
+	}
+	if database.IsPostgres() {
+		dsn, err := url.Parse(config.GetDBDSN())
+		if err != nil || (dsn.Scheme != "postgres" && dsn.Scheme != "postgresql") || dsn.Path == "/" || dsn.Path == "" {
+			return 0, fmt.Errorf("database backup failed: PostgreSQL DSN must be a postgres:// or postgresql:// URL")
+		}
+		host := dsn.Hostname()
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		port := dsn.Port()
+		if port == "" {
+			port = "5432"
+		}
+		dbName, err := url.PathUnescape(strings.TrimPrefix(dsn.EscapedPath(), "/"))
+		if err != nil {
+			return 0, fmt.Errorf("database backup failed: invalid PostgreSQL database name")
+		}
+		cmd := exec.Command("pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file="+filepath.Join(backup, "database.dump"), "--dbname", dbName)
+		env := append(os.Environ(), "PGHOST="+host, "PGPORT="+port)
+		if user := dsn.User.Username(); user != "" {
+			env = append(env, "PGUSER="+user)
+		}
+		if password, ok := dsn.User.Password(); ok {
+			env = append(env, "PGPASSWORD="+password)
+		}
+		for _, key := range []string{"sslmode", "sslcert", "sslkey", "sslrootcert", "sslcrl"} {
+			if value := dsn.Query().Get(key); value != "" {
+				env = append(env, "PG"+strings.ToUpper(key)+"="+value)
+			}
+		}
+		cmd.Env = env
+		if err := cmd.Run(); err != nil {
+			return 0, fmt.Errorf("database backup failed; pg_dump must be installed: %w", err)
+		}
+	} else if err := database.BackupSQLite(filepath.Join(backup, "x-ui.db")); err != nil {
+		return 0, fmt.Errorf("database backup failed: %w", err)
+	}
+	scriptPath, err := downloadPanelUpdater(latest)
 	if err != nil {
 		return 0, err
 	}
@@ -245,11 +296,9 @@ func (s *PanelService) upstreamUpdateDisabled(useDev bool) (int64, error) {
 	statusFile := config.GetUpdateStatusFilePath()
 
 	mainFolder, serviceFolder := resolveUpdateFolders()
-	updateTag := ""
-	if useDev {
-		updateTag = devReleaseTag
-	}
+	updateTag := latest
 	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
+	updateScript = "export XUI_UPDATE_PID=" + strconv.Itoa(os.Getpid()) + "; export XUI_BACKUP_FOLDER=" + shellQuote(backup) + "; " + updateScript
 	runIDEnv := "XUI_UPDATE_RUN_ID=" + strconv.FormatInt(runID, 10)
 	statusFileEnv := "XUI_UPDATE_STATUS_FILE=" + statusFile
 	proxyEnv := updateProxyEnvVars()
@@ -375,9 +424,9 @@ func releaseUpdateSlot() {
 	updateMu.Unlock()
 }
 
-func downloadPanelUpdater() (string, error) {
+func downloadPanelUpdater(tag string) (string, error) {
 	client := (&service.SettingService{}).NewProxiedHTTPClient(15 * time.Second)
-	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, panelUpdaterURL, nil)
+	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf(panelUpdaterURL, tag), nil)
 	if reqErr != nil {
 		return "", fmt.Errorf("download panel updater: %w", reqErr)
 	}
@@ -421,6 +470,11 @@ func downloadPanelUpdater() (string, error) {
 }
 
 func fetchLatestPanelVersion() (string, error) {
+	releaseMu.Lock()
+	defer releaseMu.Unlock()
+	if cachedReleaseTag != "" && time.Since(cachedReleaseAt) < 5*time.Minute {
+		return cachedReleaseTag, nil
+	}
 	release, err := fetchPanelRelease("")
 	if err != nil {
 		return "", err
@@ -428,15 +482,16 @@ func fetchLatestPanelVersion() (string, error) {
 	if release.TagName == "" {
 		return "", fmt.Errorf("latest panel release tag is empty")
 	}
-	return release.TagName, nil
+	cachedReleaseTag, cachedReleaseAt = release.TagName, time.Now()
+	return cachedReleaseTag, nil
 }
 
-// fetchPanelRelease fetches a release from GitHub. An empty tag resolves the
-// latest stable release; a non-empty tag (e.g. dev-latest) resolves that tag.
+// fetchPanelRelease fetches a complete release from the ProNet fork. The empty
+// tag selects the newest complete custom release; a non-empty tag resolves it.
 func fetchPanelRelease(tag string) (*service.Release, error) {
-	url := "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest"
+	url := "https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=100"
 	if tag != "" {
-		url = "https://api.github.com/repos/MHSanaei/3x-ui/releases/tags/" + tag
+		url = "https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases/tags/" + tag
 	}
 	client := (&service.SettingService{}).NewProxiedHTTPClient(10 * time.Second)
 	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
@@ -452,6 +507,39 @@ func fetchPanelRelease(tag string) (*service.Release, error) {
 		return nil, fmt.Errorf("GitHub API returned status %d: %s", resp.StatusCode, resp.Status)
 	}
 
+	if tag == "" {
+		var releases []struct {
+			service.Release
+			Draft  bool `json:"draft"`
+			Assets []struct {
+				Name string `json:"name"`
+			} `json:"assets"`
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&releases); err != nil {
+			return nil, err
+		}
+		var best *service.Release
+		for _, r := range releases {
+			if r.Draft || !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$`).MatchString(r.TagName) {
+				continue
+			}
+			files := map[string]bool{}
+			for _, asset := range r.Assets {
+				files[asset.Name] = true
+			}
+			if !files["checksums.txt"] || !files["x-ui-linux-amd64.tar.gz"] || !files["x-ui-linux-arm64.tar.gz"] {
+				continue
+			}
+			if best == nil || isNewerVersion(r.TagName, best.TagName) {
+				copy := r.Release
+				best = &copy
+			}
+		}
+		if best == nil {
+			return nil, fmt.Errorf("no complete ProNet release found")
+		}
+		return best, nil
+	}
 	var release service.Release
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, err

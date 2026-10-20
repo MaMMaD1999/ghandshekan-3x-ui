@@ -131,7 +131,7 @@ func runWebServer() {
 
 	sigCh := make(chan os.Signal, 8)
 	// Trap shutdown signals
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM, sys.SIGUSR1, os.Interrupt)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM, sys.SIGUSR1, sys.SIGUSR2, os.Interrupt)
 	global.SetRestartHook(func() {
 		select {
 		case sigCh <- syscall.SIGHUP:
@@ -191,6 +191,16 @@ func runWebServer() {
 				log.Fatalf("Error restarting sub server: %v", err)
 			}
 			log.Println("Sub server restarted successfully.")
+		case sys.SIGUSR2:
+			if stopTunnelHealthMonitor != nil {
+				stopTunnelHealthMonitor()
+			}
+			tgbot.StopBot()
+			_ = server.Stop()
+			_ = subServer.Stop()
+			if err := sys.Reexec(); err != nil {
+				log.Fatalf("ProNet update restart failed: %v", err)
+			}
 		case sys.SIGUSR1:
 			logger.Info("Received USR1 signal, restarting xray-core...")
 			err := server.RestartXray()

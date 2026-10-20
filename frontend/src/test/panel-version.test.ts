@@ -8,12 +8,16 @@ describe('isPanelUpdateAvailable', () => {
     expect(isPanelUpdateAvailable('2.6.5', '2.6.4')).toBe(true);
     expect(isPanelUpdateAvailable('v2.7.0', 'v2.6.9')).toBe(true);
     expect(isPanelUpdateAvailable('3.0.0', '2.9.9')).toBe(true);
+    expect(isPanelUpdateAvailable('v3.10.2-pronet.7', '3.10.2-pronet.6')).toBe(true);
+    expect(isPanelUpdateAvailable('3.10.3-pronet.1', '3.10.2-pronet.99')).toBe(true);
   });
 
   it('returns false when equal or the node is ahead', () => {
     expect(isPanelUpdateAvailable('2.6.4', '2.6.4')).toBe(false);
     expect(isPanelUpdateAvailable('v2.6.4', '2.6.4')).toBe(false);
     expect(isPanelUpdateAvailable('2.6.4', '2.6.5')).toBe(false);
+    expect(isPanelUpdateAvailable('3.10.2-pronet.6', 'v3.10.2-pronet.6')).toBe(false);
+    expect(isPanelUpdateAvailable('3.10.2-pronet.6', '3.10.2-pronet.7')).toBe(false);
   });
 
   it('ignores a leading v on either side', () => {

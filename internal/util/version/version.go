@@ -30,15 +30,23 @@ func Normalize(v string) string {
 	return strings.TrimPrefix(strings.TrimSpace(v), "v")
 }
 
-func parse(v string) ([3]int, bool) {
-	var result [3]int
-	parts := strings.Split(Normalize(v), ".")
+func parse(v string) ([4]int, bool) {
+	var result [4]int
+	base, suffix, custom := strings.Cut(Normalize(v), "-pronet.")
+	if custom {
+		n, err := strconv.Atoi(suffix)
+		if err != nil || n < 0 {
+			return result, false
+		}
+		result[3] = n
+	}
+	parts := strings.Split(base, ".")
 	if len(parts) != 3 {
 		return result, false
 	}
 	for i, part := range parts {
 		n, err := strconv.Atoi(part)
-		if err != nil {
+		if err != nil || n < 0 {
 			return result, false
 		}
 		result[i] = n

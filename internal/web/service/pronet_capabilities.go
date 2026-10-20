@@ -88,6 +88,7 @@ func ProNetSubscriptionTraffic(emails []string) []model.InboundTrafficDetail {
 	if db.Where("email IN ?", emails).Order("origin_guid,inbound_tag,rate_parts").Find(&rows).Error != nil {
 		return nil
 	}
+	nameTrafficRows(db, rows)
 	return rows
 }
 

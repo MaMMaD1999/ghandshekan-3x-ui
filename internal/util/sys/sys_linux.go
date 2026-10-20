@@ -14,6 +14,7 @@ import (
 	"syscall"
 )
 
+var SIGUSR2 = syscall.SIGUSR2
 var SIGUSR1 = syscall.SIGUSR1
 
 // countConnections returns the number of entries in a /proc/net/{tcp,udp}[6]

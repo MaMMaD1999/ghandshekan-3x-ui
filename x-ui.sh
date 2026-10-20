@@ -129,7 +129,7 @@ before_show_menu() {
 }
 
 install() {
-    local version="${PRONET_VERSION:-v3.10.2-pronet.6}" temp
+    local version="${PRONET_VERSION:-v3.10.2-pronet.7}" temp
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Invalid custom release"; return 1; }
     temp=$(mktemp) || return 1
     if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/$version/pronet-install.sh" -o "$temp"; then
@@ -190,7 +190,7 @@ replace_xui_script() {
 # The menu must match the installed panel, so update it from that release's
 # tag; fall back to main only when no script is published for the version.
 installed_script_url() {
-    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.6/x-ui.sh"
+    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.7/x-ui.sh"
 }
 
 update_menu() {
@@ -216,7 +216,7 @@ update_menu() {
 
 legacy_version() {
     local version
-    read -rp "Custom release (for example v3.10.2-pronet.6): " version
+    read -rp "Custom release (for example v3.10.2-pronet.7): " version
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Only ProNet custom releases are accepted."; return 1; }
     PRONET_VERSION="$version" install
 }
@@ -286,7 +286,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.6/pronet-install.sh) v3.10.2-pronet.6${plain}"
+    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/v3.10.2-pronet.7/pronet-install.sh) v3.10.2-pronet.7${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM

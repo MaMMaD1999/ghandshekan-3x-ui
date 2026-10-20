@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var SIGUSR2 = syscall.SIGUSR2
 var SIGUSR1 = syscall.SIGUSR1
 
 func GetTCPCount() (int, error) {

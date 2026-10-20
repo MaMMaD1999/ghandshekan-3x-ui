@@ -4,7 +4,9 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
+	"gorm.io/gorm"
 	"testing"
+	"time"
 )
 
 func TestProNetFractionalRemainder(t *testing.T) {
@@ -23,6 +25,35 @@ func TestProNetFractionalRemainder(t *testing.T) {
 	b, _, err := weightedCounter(100, 0, 0)
 	if err != nil || b != 0 {
 		t.Fatal("free traffic", b, err)
+	}
+}
+
+func TestProNetTrafficHistoryBucketsAccumulateWithoutChangingLifetimeSemantics(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	start := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC).UnixMilli()
+	detail := model.InboundTrafficDetail{InboundName: "Germany", InboundTag: "in-2087-tcp", Email: "history-user", OriginGuid: "node-de", RateParts: 2_000_000, UpdatedAt: start + 10_000}
+	for i := 0; i < 2; i++ {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return recordTrafficHistory(tx, detail, 100, 200, 200, 400)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, earliest, err := ProNetTrafficRange([]string{"history-user"}, start, start+60_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if earliest != start || len(rows) != 1 {
+		t.Fatalf("earliest=%d rows=%+v", earliest, rows)
+	}
+	got := rows[0]
+	if got.InboundTag != detail.InboundTag || got.InboundName != detail.InboundName || got.RawUp != 200 || got.RawDown != 400 || got.BilledUp != 400 || got.BilledDown != 800 {
+		t.Fatalf("unexpected bucket aggregation: %+v", got)
+	}
+	rows, _, err = ProNetTrafficRange([]string{"history-user"}, start+60_000, start+120_000)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("out-of-range rows=%+v err=%v", rows, err)
 	}
 }
 

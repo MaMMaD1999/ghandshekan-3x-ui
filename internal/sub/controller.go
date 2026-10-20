@@ -409,6 +409,20 @@ func (a *SUBController) maybeServeSubInfo(c *gin.Context) bool {
 		return true
 	}
 	info := a.subPageContext(page)
+	if c.Query("trafficFrom") != "" || c.Query("trafficUntil") != "" {
+		from, e1 := strconv.ParseInt(c.Query("trafficFrom"), 10, 64)
+		until, e2 := strconv.ParseInt(c.Query("trafficUntil"), 10, 64)
+		if e1 != nil || e2 != nil || from < 0 || until <= from || from%60000 != 0 || until%60000 != 0 || until-from > 366*24*60*60000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid traffic range (maximum 366 days)"})
+			return true
+		}
+		rows, start, err := service.ProNetTrafficRange(dedupeEmails(page.Emails), from, until)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "traffic history unavailable"})
+			return true
+		}
+		info["detailedTraffic"], info["trafficHistoryStart"] = rows, start
+	}
 	delete(info, "links")
 	info["emails"] = dedupeEmails(page.Emails)
 	setNoCacheHeaders(c)

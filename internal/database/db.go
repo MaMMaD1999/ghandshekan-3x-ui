@@ -83,6 +83,7 @@ func allModels() []any {
 		&model.Host{},
 		&model.NodeClientTraffic{},
 		&model.InboundTrafficDetail{},
+		&model.InboundTrafficHistory{},
 		&model.NodeClientIp{},
 		&model.ClientGlobalTraffic{},
 		&model.NodePendingReset{},

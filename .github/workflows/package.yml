@@ -25,9 +25,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '26'
-      - run: npm ci && npm run build && npm run typecheck
+      - run: npm ci && npm run build && npm run typecheck && npm run test -- src/test/panel-version.test.ts
         working-directory: frontend
-      - run: go test ./internal/xray ./internal/web/service ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
+      - run: go test ./internal/xray ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
       - uses: actions/checkout@v7
         with:
           repository: MaMMaD1999/pronet-xray-core
@@ -58,7 +58,7 @@ jobs:
           chmod +x x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-$ARCH"
           ./x-ui/x-ui -v
           "./x-ui/bin/xray-linux-$ARCH" version
-          bash -n ../pronet-install.sh ../pronet-cli.sh ../x-ui.sh
+          bash -n ../pronet-install.sh ../pronet-cli.sh ../x-ui.sh ../pronet-update.sh
           tar -czf "../x-ui-linux-$ARCH.tar.gz" x-ui
       - uses: actions/upload-artifact@v6
         with:
