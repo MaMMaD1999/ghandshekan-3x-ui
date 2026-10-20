@@ -10,6 +10,17 @@ COPY internal/web/translation /src/internal/web/translation
 RUN npm run build
 
 # ========================================================
+# Stage: Custom Xray
+# ========================================================
+FROM golang:1.27-alpine AS pronet-core
+ARG PRONET_CORE_REF=7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
+RUN apk add --no-cache git
+WORKDIR /core
+RUN git init && git remote add origin https://github.com/MaMMaD1999/pronet-xray-core.git \
+  && git fetch --depth 1 origin "$PRONET_CORE_REF" && git checkout --detach FETCH_HEAD
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /custom-xray ./main
+
+# ========================================================
 # Stage: Builder
 # ========================================================
 FROM golang:1.27-alpine AS builder
@@ -29,6 +40,8 @@ ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 RUN go build -ldflags "-w -s" -o build/x-ui main.go
 RUN ./DockerInit.sh "$TARGETARCH"
+COPY --from=pronet-core /custom-xray /tmp/pronet-xray
+RUN install -m 755 /tmp/pronet-xray "build/bin/xray-linux-${TARGETARCH}"
 
 # ========================================================
 # Stage: Final Image of 3x-ui
@@ -42,6 +55,8 @@ RUN apk add --no-cache --update \
   tzdata \
   fail2ban \
   bash \
+  util-linux \
+  tar \
   curl \
   openssl
 

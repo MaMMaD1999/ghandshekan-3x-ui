@@ -1,5 +1,8 @@
 """Read-only shell fixture tests; never runs installation or changes host services."""
 import os
+import json
+import shlex
+import sys
 from pathlib import Path
 import subprocess
 import unittest
@@ -15,16 +18,21 @@ def function(name):
 
 class InstallerTest(unittest.TestCase):
     def test_latest_published_including_prereleases(self):
-        resolver = INSTALL[INSTALL.index('if [[ "$VERSION" == latest') : INSTALL.index('case "$(uname -m)"')]
-        fixture = '''set -euo pipefail
-VERSION=latest
-curl(){ printf '  "tag_name": "v3.10.2-pronet.6",\\n'; }
-'''
-        self.assertIn('Selected ProNet release: v3.10.2-pronet.6', self.run_shell(fixture + resolver))
+        resolver = INSTALL[INSTALL.index('if [[ "$VERSION" == latest') : INSTALL.index('mkdir -p /run/lock')]
+        assets = [{'name': name} for name in ('checksums.txt', 'x-ui-linux-amd64.tar.gz', 'x-ui-linux-arm64.tar.gz')]
+        releases = [
+            {'tag_name': 'v3.10.2-pronet.10', 'draft': False, 'assets': []},
+            {'tag_name': 'v3.10.2-pronet.8', 'draft': False, 'assets': assets},
+            {'tag_name': 'v3.10.2-pronet.11', 'draft': True, 'assets': assets},
+            {'tag_name': 'v3.10.2-pronet.9', 'draft': False, 'prerelease': True, 'assets': assets},
+        ]
+        fixture = 'set -euo pipefail\nVERSION=latest\ncurl(){ cat <<\'JSON\'\n' + json.dumps(releases, indent=2) + '\nJSON\n}\n'
+        self.assertIn('Selected ProNet release: v3.10.2-pronet.9', self.run_shell(fixture + resolver))
         explicit = 'set -euo pipefail; VERSION=v3.10.2-pronet.5; curl(){ return 99; };\n'
         self.assertIn('Selected ProNet release: v3.10.2-pronet.5', self.run_shell(explicit + resolver))
 
     def run_shell(self, text, input=''):
+        text = 'python3(){ ' + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"; }\n' + text
         result = subprocess.run([BASH, '-c', text], input=input.encode('utf-8'), capture_output=True)
         out, err = result.stdout.decode('utf-8'), result.stderr.decode('utf-8')
         self.assertEqual(result.returncode, 0, err + out)
@@ -38,6 +46,19 @@ curl(){ printf '  "tag_name": "v3.10.2-pronet.6",\\n'; }
         self.assertNotIn('raw.githubusercontent.com/mhsanaei', MENU)
         self.assertIn('MaMMaD1999/pronet-3x-ui', function('installed_script_url'))
         self.assertIn('Only ProNet custom', function('legacy_version'))
+
+    def test_menu_default_update_requests_latest_not_an_old_pinned_release(self):
+        fixture = '''set -euo pipefail
+LOGE(){ echo "$*"; }
+curl(){
+  echo "DOWNLOAD:$4"
+  while [[ "$1" != -o ]]; do shift; done
+  printf '#!/bin/bash\\necho "INSTALL_VERSION:$1"\\n' > "$2"
+}
+'''
+        output = self.run_shell(fixture + function('install') + '\ninstall\n')
+        self.assertIn('/main/pronet-install.sh', output)
+        self.assertIn('INSTALL_VERSION:latest', output)
 
     def test_shared_postgres_cannot_be_purged(self):
         body = function('purge_postgresql')

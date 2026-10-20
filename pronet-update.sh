@@ -16,25 +16,39 @@ write_status() {
  mv -f "$status.tmp" "$status"
 }
 swapped=0
+service_unit=''
+if command -v systemctl >/dev/null && [[ $(systemctl show x-ui.service -p MainPID --value 2>/dev/null || true) == "$pid" ]]; then
+ service_unit=x-ui.service
+fi
 finish() {
  code=$?
+ set +e
  if ((code != 0)); then
   if ((swapped)); then
    cp "$backup/x-ui" "$folder/x-ui.rollback"; mv -f "$folder/x-ui.rollback" "$folder/x-ui"
    cp "$backup/xray" "$folder/bin/$core.rollback"; mv -f "$folder/bin/$core.rollback" "$folder/bin/$core"
    if [[ -f $backup/x-ui.sh ]]; then cp "$backup/x-ui.sh" "$folder/x-ui.sh.rollback"; mv -f "$folder/x-ui.sh.rollback" "$folder/x-ui.sh"; fi
    if [[ -f $backup/menu ]]; then cp "$backup/menu" /usr/bin/x-ui.rollback; mv -f /usr/bin/x-ui.rollback /usr/bin/x-ui; fi
+   if [[ -n $service_unit ]]; then
+    systemctl restart "$service_unit"
+   elif kill -0 "$pid" 2>/dev/null; then
+    kill -USR2 "$pid"
+   fi
   fi
   write_status failed "$code"
  fi
  rm -rf -- "$stage"
 }
 trap finish EXIT
+lock=/run/lock/pronet-update.lock
+mkdir -p "$(dirname "$lock")"
+exec 9>"$lock"
+flock -n 9 || { echo 'Another ProNet installation or update is running.' >&2; exit 1; }
 case $(uname -m) in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; *) exit 2;; esac
 core=xray-linux-$arch
 base=https://github.com/MaMMaD1999/pronet-3x-ui/releases/download/$tag
-curl -fsSL --retry 3 "$base/x-ui-linux-$arch.tar.gz" -o "$stage/package.tar.gz"
-curl -fsSL --retry 3 "$base/checksums.txt" -o "$stage/checksums.txt"
+curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 --proto '=https' --proto-redir '=https' "$base/x-ui-linux-$arch.tar.gz" -o "$stage/package.tar.gz"
+curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 --proto '=https' --proto-redir '=https' "$base/checksums.txt" -o "$stage/checksums.txt"
 hash=$(awk -v file="x-ui-linux-$arch.tar.gz" '$2==file {print $1}' "$stage/checksums.txt")
 [[ $hash =~ ^[0-9a-f]{64}$ ]]
 printf '%s  %s\n' "$hash" "$stage/package.tar.gz" | sha256sum -c -
@@ -43,7 +57,7 @@ tar -tzf "$stage/package.tar.gz" > "$stage/contents"
 tar -xzf "$stage/package.tar.gz" -C "$stage" --no-same-owner
 [[ -x $stage/x-ui/x-ui && -x $stage/x-ui/bin/$core ]]
 [[ -x $stage/x-ui/x-ui.sh ]]
-"$stage/x-ui/x-ui" -v | grep -F -- "${tag#v}"
+"$stage/x-ui/x-ui" -v | grep -Fx -- "${tag#v}"
 "$stage/x-ui/bin/$core" version >/dev/null
 cp -p "$folder/x-ui" "$backup/x-ui"
 cp -p "$folder/bin/$core" "$backup/xray"
@@ -61,6 +75,15 @@ mv -f /usr/bin/x-ui.new /usr/bin/x-ui
 # contains the custom core and embedded UI; both were validated before swapping.
 write_status pending 0
 kill -USR2 "$pid"
-sleep 4
-kill -0 "$pid"
-write_status success 0
+for _ in {1..30}; do
+ if [[ /proc/$pid/exe -ef $folder/x-ui ]]; then
+  sleep 3
+  if kill -0 "$pid" && [[ /proc/$pid/exe -ef $folder/x-ui ]]; then
+   write_status success 0
+   exit 0
+  fi
+ fi
+ sleep 1
+done
+echo 'Updated panel did not replace the running executable; restoring the previous binaries.' >&2
+exit 1

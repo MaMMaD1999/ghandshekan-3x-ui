@@ -3,16 +3,31 @@ set -euo pipefail
 # No configuration is erased. Staging files and backups are retained for review.
 VERSION="${1:-latest}"
 [[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
-for command in systemctl curl tar sha256sum openssl; do
+for command in systemctl curl tar sha256sum openssl python3 flock; do
   command -v "$command" >/dev/null || { echo "Install $command first." >&2; exit 1; }
 done
 if [[ "$VERSION" == latest ]]; then
   # Public releases includes published prereleases; /releases/latest excludes them.
-  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=1')
-  VERSION=$(printf '%s\n' "$releases" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"(v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+)".*/\1/p')
+  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=100')
+  VERSION=$(printf '%s\n' "$releases" | python3 -c '
+import json, re, sys
+required = {"checksums.txt", "x-ui-linux-amd64.tar.gz", "x-ui-linux-arm64.tar.gz"}
+versions = []
+for release in json.load(sys.stdin):
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)-pronet\.(\d+)", release.get("tag_name", ""))
+    assets = {a.get("name") for a in release.get("assets", [])}
+    if match and not release.get("draft") and required <= assets:
+        versions.append((tuple(map(int, match.groups())), release["tag_name"]))
+if not versions:
+    raise SystemExit("No complete published ProNet release found; nothing changed.")
+print(max(versions)[1])
+')
 fi
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { echo 'Invalid ProNet release version; nothing changed.' >&2; exit 1; }
 printf 'Selected ProNet release: %s\n' "$VERSION"
+mkdir -p /run/lock
+exec 9>/run/lock/pronet-update.lock
+flock -n 9 || { echo 'Another ProNet installation or update is running.' >&2; exit 1; }
 case "$(uname -m)" in
   x86_64) arch=amd64;;
   aarch64|arm64) arch=arm64;;
@@ -28,6 +43,7 @@ tar -tzf "$stage/$archive" | awk '/^\// || /(^|\/)\.\.(\/|$)/ {exit 1}'
 tar -xzf "$stage/$archive" -C "$stage"
 test -x "$stage/x-ui/x-ui"
 test -x "$stage/x-ui/bin/xray-linux-$arch"
+"$stage/x-ui/x-ui" -v | grep -Fx -- "${VERSION#v}"
 "$stage/x-ui/bin/xray-linux-$arch" version >/dev/null
 fresh=1
 [[ -f /etc/x-ui/x-ui.db || -x /usr/local/x-ui/x-ui ]] && fresh=0
@@ -72,14 +88,38 @@ if values.get('XUI_DB_TYPE', '').lower() in ('postgres', 'postgresql', 'pg'):
 PY
   break
 done
+was_active=0
+systemctl is-active --quiet x-ui && was_active=1
+swapped=0
+restore_installation() {
+  code=$?
+  trap - EXIT
+  if ((code != 0)); then
+    set +e
+    if ((swapped)) && [[ -d "$backup/program" ]]; then
+      systemctl stop x-ui
+      cp -a "$backup/program/." /usr/local/x-ui/
+      [[ ! -f "$backup/menu" ]] || install -m 755 "$backup/menu" /usr/bin/x-ui
+      systemctl daemon-reload
+    fi
+    ((was_active == 0)) || systemctl start x-ui
+    printf 'Installation failed. Previous program restored when available. Database backup retained at %s\n' "$backup" >&2
+  fi
+  exit "$code"
+}
+trap restore_installation EXIT
 systemctl stop x-ui 2>/dev/null || true
 [[ ! -d /etc/x-ui ]] || cp -a /etc/x-ui "$backup/config"
 [[ ! -d /usr/local/x-ui ]] || cp -a /usr/local/x-ui "$backup/program"
+[[ ! -f /usr/bin/x-ui ]] || cp -a /usr/bin/x-ui "$backup/menu"
 printf 'Backup: %s\nStaging: %s\n' "$backup" "$stage"
 mkdir -p /usr/local/x-ui /etc/x-ui /var/log/x-ui
+swapped=1
 cp -a "$stage/x-ui/." /usr/local/x-ui/
 install -m 755 /usr/local/x-ui/x-ui.sh /usr/bin/x-ui
-install -m 644 /usr/local/x-ui/x-ui.service.debian /etc/systemd/system/x-ui.service
+if [[ ! -f /etc/systemd/system/x-ui.service ]]; then
+  install -m 644 /usr/local/x-ui/x-ui.service.debian /etc/systemd/system/x-ui.service
+fi
 systemctl daemon-reload
 if [[ "$fresh" == 1 ]]; then
   username="pronet_$(openssl rand -hex 3)"
@@ -90,6 +130,8 @@ fi
 systemctl enable --now x-ui
 sleep 3
 systemctl is-active --quiet x-ui
+pid=$(systemctl show x-ui.service -p MainPID --value)
+[[ "$pid" =~ ^[0-9]+$ && /proc/$pid/exe -ef /usr/local/x-ui/x-ui ]]
 info=$(cd /usr/local/x-ui; ./x-ui setting -show true)
 panel_port=$(printf '%s\n' "$info" | sed -n 's/^port: //p')
 panel_path=$(printf '%s\n' "$info" | sed -n 's/^webBasePath: //p')

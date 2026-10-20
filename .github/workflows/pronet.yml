@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - run: python3 tools/test_installer_menu.py && python3 tools/test_pronet_update.py
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
