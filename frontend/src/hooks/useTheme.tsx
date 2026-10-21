@@ -117,7 +117,7 @@ export function buildAntdThemeConfig(isDark: boolean, isUltra: boolean): ThemeCo
     return {
       ...SHARED_STYLE_CONFIG,
       algorithm: antdTheme.defaultAlgorithm,
-      token: LIGHT_CONTRAST_TOKENS,
+      token: { ...LIGHT_CONTRAST_TOKENS, fontFamily: "'Country Flags', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
       components: {
         Statistic: STATISTIC_TOKENS,
         Button: LIGHT_BUTTON_TOKENS,
@@ -127,7 +127,7 @@ export function buildAntdThemeConfig(isDark: boolean, isUltra: boolean): ThemeCo
   return {
     ...SHARED_STYLE_CONFIG,
     algorithm: antdTheme.darkAlgorithm,
-    token: isUltra ? ULTRA_DARK_TOKENS : DARK_TOKENS,
+    token: { ...(isUltra ? ULTRA_DARK_TOKENS : DARK_TOKENS), fontFamily: "'Country Flags', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
     components: {
       Layout: isUltra ? ULTRA_DARK_LAYOUT_TOKENS : DARK_LAYOUT_TOKENS,
       Menu: isUltra ? ULTRA_DARK_MENU_TOKENS : DARK_MENU_TOKENS,
