@@ -1,5 +1,9 @@
 # ProNet custom accounting — test release
 
+## v3.10.2-pronet.16
+
+- Bundle the color country-flags font for Windows Chromium, served locally under the panel asset base path. Stored remarks and subscription links remain unchanged.
+
 ## v3.10.2-pronet.15
 
 - Web updates allow up to two minutes for graceful panel shutdown/re-exec, rather than rolling a busy master back after 30 seconds. Per-update logs are retained with the database backup.
