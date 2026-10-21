@@ -29,6 +29,7 @@ jobs:
           node-version: '26'
       - run: npm ci && npm run build && npm run typecheck && npm run test -- src/test/panel-version.test.ts src/test/pronet-traffic-cards.test.tsx
         working-directory: frontend
+      - run: python3 tools/test_country_font_build.py
       - run: go test ./internal/xray ./internal/database ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
       - uses: actions/checkout@v7
         with:

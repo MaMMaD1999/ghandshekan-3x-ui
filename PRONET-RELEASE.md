@@ -1,3 +1,7 @@
+## v3.10.2-pronet.18 — country flags on every installation path
+
+Keeps the master host persistence fix from v17. Bundles the country font inside CSS so custom panel paths and subscription pages cannot request a broken absolute /assets/ URL. Login, management and subscription entrypoints all load the same font. CI checks the built font data in each entrypoint.
+
 ## v3.10.2-pronet.17 — preserve master-managed hosts
 
 Restores upstream one-time import of node hosts. Subsequent traffic snapshots never delete, replace or resurrect master host groups. Master add/edit/disable/reorder/delete operations persist, including groups shared by local and node inbounds. Node host group IDs remain isolated. ProNet reads the master host catalog; no subscription credentials, traffic history, quota or database reset is involved.
