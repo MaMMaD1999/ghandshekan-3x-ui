@@ -75,8 +75,7 @@ func TestSetRemoteTraffic_AdoptsNodeHostRows(t *testing.T) {
 		t.Fatalf("total host rows = %d, want 1 (group member for un-adopted node inbound 99 must not materialize)", total)
 	}
 
-	// Subsequent snapshots must mirror edits on the already-adopted inbound,
-	// instead of leaving the ProNet subscription on the first host set forever.
+	// Later node snapshots must leave the imported hosts under master control.
 	snap.HostGroups[0].Hosts = []string{"updated.example.com:9443"}
 	snap.HostGroups[0].Sni = "updated.example.com"
 	if _, err := svc.setRemoteTrafficLocked(nodeID, snap, false, false); err != nil {
@@ -85,49 +84,8 @@ func TestSetRemoteTraffic_AdoptsNodeHostRows(t *testing.T) {
 	if err := db.Where("inbound_id = ?", central.Id).Find(&hosts).Error; err != nil {
 		t.Fatalf("load updated adopted hosts: %v", err)
 	}
-	if len(hosts) != 1 || hosts[0].Address != "updated.example.com" || hosts[0].Port != 9443 || hosts[0].Sni != "updated.example.com" {
+	if len(hosts) != 1 || hosts[0].Address != "cdn.example.com" || hosts[0].Port != 8443 || hosts[0].Sni != "sni.example.com" {
 		t.Fatalf("updated adopted hosts = %+v", hosts)
-	}
-}
-
-func TestSyncAdoptedHostRows_UpdatesAndRemovesStaleHosts(t *testing.T) {
-	setupConflictDB(t)
-	db := database.GetDB()
-	seedInboundConflict(t, "host-sync-443", "", 443, model.VLESS, `{}`, `{"clients":[]}`)
-	var inbound model.Inbound
-	if err := db.Where("tag = ?", "host-sync-443").First(&inbound).Error; err != nil {
-		t.Fatalf("load inbound: %v", err)
-	}
-	groups := []*entity.HostGroup{{
-		GroupId: "remote-group", InboundIds: []int{77}, Hosts: []string{"old.example:443"},
-		Remark: "edge", Security: "tls", Sni: "old.example",
-	}}
-	changed, err := syncAdoptedHostRows(db, groups, 7, 77, inbound.Id)
-	if err != nil || !changed {
-		t.Fatalf("initial sync = (%v, %v), want changed", changed, err)
-	}
-	groups[0].Hosts = []string{"new.example:8443"}
-	groups[0].Sni = "new.example"
-	changed, err = syncAdoptedHostRows(db, groups, 7, 77, inbound.Id)
-	if err != nil || !changed {
-		t.Fatalf("updated sync = (%v, %v), want changed", changed, err)
-	}
-	var rows []model.Host
-	if err := db.Where("inbound_id = ?", inbound.Id).Find(&rows).Error; err != nil {
-		t.Fatalf("load updated hosts: %v", err)
-	}
-	if len(rows) != 1 || rows[0].Address != "new.example" || rows[0].Port != 8443 || rows[0].Sni != "new.example" {
-		t.Fatalf("updated host rows = %+v", rows)
-	}
-	changed, err = syncAdoptedHostRows(db, []*entity.HostGroup{}, 7, 77, inbound.Id)
-	if err != nil || !changed {
-		t.Fatalf("empty sync = (%v, %v), want stale rows removed", changed, err)
-	}
-	if err := db.Where("inbound_id = ?", inbound.Id).Find(&rows).Error; err != nil {
-		t.Fatalf("load removed hosts: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("host rows after removal = %+v, want none", rows)
 	}
 }
 
@@ -148,7 +106,8 @@ func TestAdoptedHostGroups_AreNamespacedAcrossClonedNodes(t *testing.T) {
 	}}
 	for i, inbound := range inbounds {
 		groups[0].Hosts = []string{[]string{"a.example:443", "b.example:443"}[i]}
-		if _, err := syncAdoptedHostRows(db, groups, i+1, 52, inbound.Id); err != nil {
+		rows := adoptedHostRows(groups, i+1, 52, inbound.Id)
+		if err := db.Create(&rows).Error; err != nil {
 			t.Fatalf("sync node %d hosts: %v", i+1, err)
 		}
 	}

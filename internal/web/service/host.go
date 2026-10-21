@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -158,8 +157,8 @@ func buildHostRows(groupId string, req *entity.HostGroup) []*model.Host {
 	return rows
 }
 
-// adoptedHostRows projects a node's host groups onto its central inbound so
-// TLS/SNI/fingerprint overrides survive the node-to-master sync.
+// adoptedHostRows imports a node's host groups when its inbound is first adopted.
+// The master owns host edits after that one-time import.
 func adoptedHostRows(groups []*entity.HostGroup, nodeID, nodeInboundId, centralInboundId int) []*model.Host {
 	var rows []*model.Host
 	for _, g := range groups {
@@ -176,45 +175,6 @@ func adoptedHostRows(groups []*entity.HostGroup, nodeID, nodeInboundId, centralI
 		rows = append(rows, buildHostRows(scoped.GroupId, &scoped)...)
 	}
 	return rows
-}
-
-// syncAdoptedHostRows mirrors the source node's host configuration onto the
-// central inbound. Host settings are edited on the node, so only syncing them
-// when the inbound is first adopted leaves app-generated links stale forever.
-// An empty (but successfully fetched) group list intentionally removes stale
-// rows; a failed fetch is represented by nil and must not call this function.
-func syncAdoptedHostRows(tx *gorm.DB, groups []*entity.HostGroup, nodeID, nodeInboundId, centralInboundId int) (bool, error) {
-	want := adoptedHostRows(groups, nodeID, nodeInboundId, centralInboundId)
-	var current []*model.Host
-	if err := tx.Where("inbound_id = ?", centralInboundId).Order("sort_order asc, id asc").Find(&current).Error; err != nil {
-		return false, err
-	}
-	comparable := func(rows []*model.Host) []*model.Host {
-		out := make([]*model.Host, len(rows))
-		for i, row := range rows {
-			copy := *row
-			copy.Id, copy.CreatedAt, copy.UpdatedAt = 0, 0, 0
-			out[i] = &copy
-		}
-		return out
-	}
-	if reflect.DeepEqual(comparable(current), comparable(want)) {
-		return false, nil
-	}
-	if err := tx.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("inbound_id = ?", centralInboundId).Delete(&model.Host{}).Error; err != nil {
-			return err
-		}
-		if len(want) > 0 {
-			if err := tx.Create(&want).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func validateInboundsExist(tx *gorm.DB, inboundIds []int) error {

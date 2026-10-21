@@ -1,3 +1,7 @@
+## v3.10.2-pronet.17 — preserve master-managed hosts
+
+Restores upstream one-time import of node hosts. Subsequent traffic snapshots never delete, replace or resurrect master host groups. Master add/edit/disable/reorder/delete operations persist, including groups shared by local and node inbounds. Node host group IDs remain isolated. ProNet reads the master host catalog; no subscription credentials, traffic history, quota or database reset is involved.
+
 # ProNet custom accounting — test release
 
 ## v3.10.2-pronet.16

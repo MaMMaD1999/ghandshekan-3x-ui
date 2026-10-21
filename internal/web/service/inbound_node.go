@@ -836,8 +836,11 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				tagToCentral[newIb.Tag] = &newIb
 			}
 			if snap.HostGroups != nil {
-				if _, err := syncAdoptedHostRows(tx, snap.HostGroups, nodeID, snapIb.Id, newIb.Id); err != nil {
-					return false, fmt.Errorf("sync hosts for newly adopted inbound %q: %w", newIb.Tag, err)
+				rows := adoptedHostRows(snap.HostGroups, nodeID, snapIb.Id, newIb.Id)
+				if len(rows) > 0 {
+					if err := tx.Create(&rows).Error; err != nil {
+						return false, fmt.Errorf("import hosts for newly adopted inbound %q: %w", newIb.Tag, err)
+					}
 				}
 			}
 			newInboundIDs[newIb.Id] = struct{}{}
@@ -1053,13 +1056,8 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		if !ok {
 			continue
 		}
-		if snap.HostGroups != nil {
-			changed, err := syncAdoptedHostRows(tx, snap.HostGroups, nodeID, snapIb.Id, c.Id)
-			if err != nil {
-				return false, fmt.Errorf("sync hosts for inbound %q: %w", c.Tag, err)
-			}
-			structuralChange = structuralChange || changed
-		}
+		// Hosts are master-owned after initial adoption. A traffic snapshot
+		// must not erase master-created hosts, undo edits or resurrect deletions.
 		snapEmails := make(map[string]struct{}, len(snapIb.ClientStats))
 		// Parsed once per inbound on the first renewal candidate, not per client.
 		var snapExpiries map[string]int64
