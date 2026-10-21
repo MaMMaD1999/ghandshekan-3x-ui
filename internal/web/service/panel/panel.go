@@ -297,7 +297,7 @@ func (s *PanelService) startUpdate(useDev bool) (int64, error) {
 
 	mainFolder, serviceFolder := resolveUpdateFolders()
 	updateTag := latest
-	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
+	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s >>%s 2>&1", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath), shellQuote(filepath.Join(backup, "update.log")))
 	updateScript = "export XUI_UPDATE_PID=" + strconv.Itoa(os.Getpid()) + "; export XUI_BACKUP_FOLDER=" + shellQuote(backup) + "; " + updateScript
 	runIDEnv := "XUI_UPDATE_RUN_ID=" + strconv.FormatInt(runID, 10)
 	statusFileEnv := "XUI_UPDATE_STATUS_FILE=" + statusFile

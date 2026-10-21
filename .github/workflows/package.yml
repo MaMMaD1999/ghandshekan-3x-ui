@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: python3 tools/test_installer_menu.py
       - run: python3 tools/test_pronet_update.py
+      - run: python3 tools/test_docker_runtime.py && python3 tools/test_pronet_update_slow.py
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -56,6 +57,8 @@ jobs:
           cp ../custom-panel x-ui/x-ui
           cp ../custom-xray "x-ui/bin/xray-linux-$ARCH"
           cp ../x-ui.sh x-ui/x-ui.sh
+          cp ../pronet-docker-runtime.sh ../DockerEntrypoint.sh x-ui/
+          chmod +x x-ui/pronet-docker-runtime.sh x-ui/DockerEntrypoint.sh
           chmod +x x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-$ARCH"
           ./x-ui/x-ui -v
           "./x-ui/bin/xray-linux-$ARCH" version

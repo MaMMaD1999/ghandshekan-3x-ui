@@ -1,5 +1,11 @@
 # ProNet custom accounting — test release
 
+## v3.10.2-pronet.13
+
+- Web updates allow up to two minutes for graceful panel shutdown/re-exec, rather than rolling a busy master back after 30 seconds. Per-update logs are retained with the database backup.
+- Docker web updates persist a checksummed runtime in the existing database volume. The custom Docker entrypoint restores a newer verified runtime after container recreation; newer image versions are never downgraded to an older saved runtime.
+- Docker bootstrap files are included in custom release packages. Existing images need the new bootstrap once; recreating an old image without that bootstrap cannot preserve an in-container application update. A read-only application root must be updated by recreating its image; web updates refuse before changing binaries.
+
 ## v3.10.2-pronet.12
 
 - Subscription traffic cards hide entries charged less than 10 MiB in the selected range. All byte counters and accounting APIs retain those entries unchanged.

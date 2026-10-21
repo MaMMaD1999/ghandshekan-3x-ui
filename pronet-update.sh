@@ -10,7 +10,7 @@ pid=${XUI_UPDATE_PID:?}
 status=${XUI_UPDATE_STATUS_FILE:?}
 run=${XUI_UPDATE_RUN_ID:?}
 [[ $pid =~ ^[0-9]+$ && $run =~ ^[0-9]+$ && $folder = /* && -d $backup ]] || exit 2
-stage=$(mktemp -d "$folder/.pronet-update.XXXXXX")
+stage=''
 write_status() {
  printf '{"runId":"%s","state":"%s","exitCode":%s,"finishedAt":%s}\n' "$run" "$1" "$2" "$(date +%s)" > "$status.tmp"
  mv -f "$status.tmp" "$status"
@@ -37,10 +37,15 @@ finish() {
   fi
   write_status failed "$code"
  fi
- rm -rf -- "$stage"
+ [[ -z $stage ]] || rm -rf -- "$stage"
 }
 trap finish EXIT
+[[ -w $folder && -w $folder/bin ]] || { echo 'Application filesystem is read-only; recreate the container with the newer custom image and existing database volume.' >&2; exit 2; }
+stage=$(mktemp -d "$folder/.pronet-update.XXXXXX")
 lock=/run/lock/pronet-update.lock
+if [[ -f /.dockerenv || ${XUI_IN_DOCKER:-false} == true ]]; then
+ lock=${XUI_DB_FOLDER:-$(dirname "$(dirname "$backup")")}/pronet-update.lock
+fi
 mkdir -p "$(dirname "$lock")"
 exec 9>"$lock"
 flock -n 9 || { echo 'Another ProNet installation or update is running.' >&2; exit 1; }
@@ -69,16 +74,35 @@ mv -f "$stage/x-ui/bin/$core" "$folder/bin/$core"
 mv -f "$stage/x-ui/x-ui" "$folder/x-ui"
 install -m 755 "$stage/x-ui/x-ui.sh" "$folder/x-ui.sh.new"
 mv -f "$folder/x-ui.sh.new" "$folder/x-ui.sh"
-install -m 755 "$stage/x-ui/x-ui.sh" /usr/bin/x-ui.new
-mv -f /usr/bin/x-ui.new /usr/bin/x-ui
+if [[ -w /usr/bin ]]; then
+ install -m 755 "$stage/x-ui/x-ui.sh" /usr/bin/x-ui.new
+ mv -f /usr/bin/x-ui.new /usr/bin/x-ui
+fi
+if [[ -f /.dockerenv || ${XUI_IN_DOCKER:-false} == true ]]; then
+ if [[ ! -f $folder/pronet-docker-runtime.sh && -f $stage/x-ui/pronet-docker-runtime.sh ]]; then
+  install -m 755 "$stage/x-ui/pronet-docker-runtime.sh" "$folder/pronet-docker-runtime.sh"
+  install -m 755 "$stage/x-ui/DockerEntrypoint.sh" "$folder/DockerEntrypoint.sh"
+ fi
+fi
 # Other runtime assets/configuration/certificates remain unchanged. The package
 # contains the custom core and embedded UI; both were validated before swapping.
 write_status pending 0
 kill -USR2 "$pid"
-for _ in {1..30}; do
+timeout=${XUI_UPDATE_RESTART_TIMEOUT:-120}
+[[ $timeout =~ ^[0-9]+$ && $timeout -ge 30 && $timeout -le 300 ]] || exit 2
+for ((attempt=0; attempt<timeout; attempt++)); do
  if [[ /proc/$pid/exe -ef $folder/x-ui ]]; then
   sleep 3
   if kill -0 "$pid" && [[ /proc/$pid/exe -ef $folder/x-ui ]]; then
+   if [[ -f /.dockerenv || ${XUI_IN_DOCKER:-false} == true ]]; then
+    runtime=${XUI_DB_FOLDER:-$(dirname "$(dirname "$backup")")}/pronet-runtime
+    mkdir -p "$runtime/releases"
+    slot=$(mktemp -d "$runtime/releases/${tag#v}-$run.XXXXXX")
+    cp "$folder/x-ui" "$slot/x-ui"; cp "$folder/bin/$core" "$slot/xray"; cp "$folder/x-ui.sh" "$slot/menu"
+    printf '%s\n' "${tag#v}" > "$slot/version"
+    (cd "$slot" && sha256sum x-ui xray menu > checksums.txt)
+    ln -s "releases/$(basename "$slot")" "$runtime/current.$run"; mv -Tf "$runtime/current.$run" "$runtime/current"
+   fi
    write_status success 0
    exit 0
   fi
