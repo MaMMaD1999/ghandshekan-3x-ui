@@ -1,6 +1,7 @@
 """The real updater must survive a slow graceful shutdown before exec."""
 import hashlib
 import os
+import platform
 from pathlib import Path
 import shlex
 import signal
@@ -15,6 +16,7 @@ class SlowRestartTest(unittest.TestCase):
     def test_slow_live_exec_is_not_rolled_back_at_thirty_seconds(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);app=root/'app';backup=root/'backup';mock=root/'mock'
+            arch='amd64' if platform.machine()=='x86_64' else 'arm64'
             for folder in (app/'bin',backup,mock,root/'package/x-ui/bin'):folder.mkdir(parents=True)
             source=root/'panel.c';source.write_text('''#include <unistd.h>
 #include <signal.h>
@@ -26,12 +28,12 @@ int main(int argc,char **argv){if(argc>1){puts(VERSION);return 0;} signal(SIGUSR
 ''')
             for version,path in [('3.10.2-pronet.12',app/'x-ui'),('3.10.2-pronet.13',root/'package/x-ui/x-ui')]:
                 subprocess.run(['gcc','-DVERSION="'+version+'"',str(source),'-o',str(path)],check=True)
-            (app/'bin/xray-linux-amd64').write_text('old-core');(app/'x-ui.sh').write_text('old-menu')
-            for name in ['bin/xray-linux-amd64','x-ui.sh']:
+            (app/f'bin/xray-linux-{arch}').write_text('old-core');(app/'x-ui.sh').write_text('old-menu')
+            for name in [f'bin/xray-linux-{arch}','x-ui.sh']:
                 p=root/'package/x-ui'/name;p.write_text('#!/bin/sh\necho fixture\n');p.chmod(0o755)
             package=root/'package.tar.gz'
             with tarfile.open(package,'w:gz') as tar:tar.add(root/'package/x-ui',arcname='x-ui')
-            (root/'checksums.txt').write_text(hashlib.sha256(package.read_bytes()).hexdigest()+'  x-ui-linux-amd64.tar.gz\n')
+            (root/'checksums.txt').write_text(hashlib.sha256(package.read_bytes()).hexdigest()+f'  x-ui-linux-{arch}.tar.gz\n')
             (mock/'curl').write_text('#!/bin/bash\nsrc="$FIXTURE/package.tar.gz"\nfor arg in "$@"; do case "$arg" in *checksums.txt) src="$FIXTURE/checksums.txt";; esac; done\nwhile [[ "$1" != -o ]]; do shift; done\ncp "$src" "$2"\n');(mock/'curl').chmod(0o755)
             text=(ROOT/'pronet-update.sh').read_text().replace('/usr/bin/x-ui',str(root/'menu')).replace('/run/lock/pronet-update.lock',str(root/'lock'))
             script=root/'update.sh';script.write_text(text)

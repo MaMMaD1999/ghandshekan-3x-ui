@@ -1,6 +1,6 @@
 # ProNet custom accounting — test release
 
-## v3.10.2-pronet.13
+## v3.10.2-pronet.14
 
 - Web updates allow up to two minutes for graceful panel shutdown/re-exec, rather than rolling a busy master back after 30 seconds. Per-update logs are retained with the database backup.
 - Docker web updates persist a checksummed runtime in the existing database volume. The custom Docker entrypoint restores a newer verified runtime after container recreation; newer image versions are never downgraded to an older saved runtime.
