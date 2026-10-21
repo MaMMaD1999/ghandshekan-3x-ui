@@ -1,6 +1,7 @@
 """A recreated image restores only a newer, complete persisted runtime."""
 import hashlib
 import os
+import platform
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class DockerRuntimeTest(unittest.TestCase):
     def test_recreation_restores_verified_update_but_never_downgrades_image(self):
         with tempfile.TemporaryDirectory() as tmp:
+            arch='amd64' if platform.machine()=='x86_64' else 'arm64'
             root=Path(tmp);app=root/'app';runtime=root/'db/pronet-runtime';slot=runtime/'releases/v3.10.2-pronet.13-test'
             (app/'bin').mkdir(parents=True);slot.mkdir(parents=True)
             def panel(version): return '#!/bin/sh\necho '+version+'\n'
@@ -27,7 +29,7 @@ class DockerRuntimeTest(unittest.TestCase):
                 return r.stdout+r.stderr
             report=restore()
             self.assertEqual((app/'x-ui').read_text(),panel('3.10.2-pronet.13'),report)
-            self.assertEqual((app/'bin/xray-linux-amd64').read_text(),'new-core')
+            self.assertEqual((app/f'bin/xray-linux-{arch}').read_text(),'new-core')
             (app/'x-ui').write_text(panel('3.10.2-pronet.14'));restore()
             self.assertEqual((app/'x-ui').read_text(),panel('3.10.2-pronet.14'))
             (app/'x-ui').write_text(panel('3.10.2-pronet.12'));(slot/'xray').write_text('corrupt');restore()
