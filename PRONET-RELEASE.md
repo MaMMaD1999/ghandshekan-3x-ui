@@ -1,6 +1,6 @@
-## v3.10.2-pronet.19 — predictable host toggles in subscriptions
+## v3.10.2-pronet.20 — predictable host toggles in subscriptions
 
-Disabling or excluding the last configured host no longer revives the inbound address or legacy external proxies. Raw, JSON, Clash, QR and inbound exports share the same host-selection rule. Client usage and quota headers remain intact when links are suppressed. JSON host rendering keeps the source inbound unchanged. Regression tests cover partial/all disables, per-format exclusions, sibling endpoints, quota headers, master host persistence, and legacy zero-host output.
+Disabling or excluding the last configured host no longer revives the inbound address or legacy external proxies. Raw, JSON, Clash, QR and inbound exports share the same host-selection rule. Client usage and quota headers remain intact when links are suppressed. JSON host rendering keeps the source inbound unchanged. Deep copies isolate transport headers/paths, Reality/TLS settings and mask arrays between endpoints. Regression tests cover partial/all disables, per-format exclusions, sibling endpoints, quota headers, master host persistence, and legacy zero-host output.
 
 ## v3.10.2-pronet.18 — country flags on every installation path
 

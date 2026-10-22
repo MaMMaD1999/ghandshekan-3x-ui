@@ -175,3 +175,34 @@ func TestHostFormatExclusionDoesNotHideOtherFormats(t *testing.T) {
 		t.Fatalf("format-specific exclusion returned wrong counts: %+v", got)
 	}
 }
+
+func TestHostStreamCopiesIsolateNestedTransportAndReality(t *testing.T) {
+	base := map[string]any{
+		"security":        "reality",
+		"realitySettings": map[string]any{"serverName": "base.sni"},
+		"wsSettings":      map[string]any{"path": "/base", "headers": map[string]any{"Host": "base.host"}},
+		"finalmask":       map[string]any{"tcp": []any{map[string]any{"settings": map[string]any{"length": "1-2"}}}},
+	}
+	before, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := cloneStreamForExternalProxy(base)
+	applyHostStreamOverrides(map[string]any{"isHost": true, "hostHeader": "first.host", "path": "/first", "sni": "first.sni"}, one)
+	one["wsSettings"].(map[string]any)["headers"].(map[string]any)["Host"] = "changed.host"
+	one["finalmask"].(map[string]any)["tcp"].([]any)[0].(map[string]any)["settings"].(map[string]any)["length"] = "9-10"
+	after, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("host overrides changed the shared base stream: %s", after)
+	}
+	two, err := json.Marshal(cloneStreamForExternalProxy(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(two) != string(before) {
+		t.Fatalf("next host inherited prior overrides: %s", two)
+	}
+}

@@ -2124,22 +2124,32 @@ func applyExternalProxyHysteriaParams(ep map[string]any, params map[string]strin
 	}
 }
 
-// cloneStreamForExternalProxy returns a shallow clone of stream with
-// tlsSettings (and its nested settings map) deep-copied. The external
-// proxy loop mutates tlsSettings per iteration, so without isolating
-// those maps each proxy's SNI/fingerprint/ALPN would leak into the next.
+// Every host mutates its own stream, including nested transport headers,
+// Reality/TLS options and finalmask arrays. A TLS-only copy let the first host's
+// WS/XHTTP path and Host leak into siblings and made toggles change their links.
 func cloneStreamForExternalProxy(stream map[string]any) map[string]any {
-	out := cloneMap(stream)
-	ts, ok := out["tlsSettings"].(map[string]any)
-	if !ok || ts == nil {
-		return out
+	out := make(map[string]any, len(stream))
+	for key, value := range stream {
+		out[key] = cloneEndpointStreamValue(value)
 	}
-	clonedTs := cloneMap(ts)
-	if inner, ok := clonedTs["settings"].(map[string]any); ok && inner != nil {
-		clonedTs["settings"] = cloneMap(inner)
-	}
-	out["tlsSettings"] = clonedTs
 	return out
+}
+
+func cloneEndpointStreamValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return cloneStreamForExternalProxy(value)
+	case []any:
+		out := make([]any, len(value))
+		for i, item := range value {
+			out[i] = cloneEndpointStreamValue(item)
+		}
+		return out
+	case []string:
+		return slices.Clone(value)
+	default:
+		return value
+	}
 }
 
 func applyExternalProxyTLSToStream(ep map[string]any, stream map[string]any, security string) {
