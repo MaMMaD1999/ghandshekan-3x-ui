@@ -1,4 +1,4 @@
-## v3.10.2-pronet.23 - remove sponsor and advertising surfaces
+## v3.10.2-pronet.24 - remove sponsor and advertising surfaces
 
 Removes sponsor navigation, command-palette entries, login/dashboard ad slots and donation buttons from desktop and mobile layouts. Old sponsor-page bookmarks return to the dashboard. Compatibility endpoints return an empty sponsor catalog and no logos without contacting the sponsor service. Subscription usage cards, accounting, inbound and protocol settings are unchanged.
 
