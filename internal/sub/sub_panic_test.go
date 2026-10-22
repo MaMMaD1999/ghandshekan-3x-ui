@@ -111,7 +111,12 @@ func TestGetClashEmitsPinnedCertSha256(t *testing.T) {
 func TestJsonAndClashTolerateExternalProxyMissingPort(t *testing.T) {
 	seedSubDB(t)
 	stream := `{"network":"tcp","security":"none","externalProxy":[{"forceTls":"same","dest":"cdn.example.com"}]}`
-	seedSubInbound(t, "extp1", "extp", 46500, 1, stream)
+	ib := seedSubInbound(t, "extp1", "extp", 46500, 1, stream)
+	// Normal inbound creation/import migrates legacy proxy entries into hosts.
+	// Seed that production state rather than a deliberately deleted catalog.
+	if _, err := database.CreateHostsFromExternalProxy(database.GetDB(), ib.Id, stream); err != nil {
+		t.Fatal(err)
+	}
 
 	jsonService := NewSubJsonService("", "", "", "", NewSubService(""))
 	jsonOut, _, err := jsonService.GetJson("extp1", "sub.example.com", true)
@@ -128,5 +133,9 @@ func TestJsonAndClashTolerateExternalProxyMissingPort(t *testing.T) {
 	}
 	if clashOut == "" {
 		t.Fatal("GetClash returned empty for an externalProxy entry missing port")
+	}
+	if !strings.Contains(jsonOut, "cdn.example.com") || !strings.Contains(jsonOut, "46500") ||
+		!strings.Contains(clashOut, "cdn.example.com") || !strings.Contains(clashOut, "46500") {
+		t.Fatal("migrated proxy did not inherit the inbound port")
 	}
 }
