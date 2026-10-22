@@ -131,7 +131,7 @@ func (s *SubJsonService) GetJson(subId string, host string, alwaysReturnArray bo
 	}
 
 	var header string
-	var hasInactiveExternal bool
+	var hasSuppressedEntries bool
 	var hasEnabledClient bool
 
 	seenEmails := make(map[string]struct{})
@@ -149,7 +149,14 @@ func (s *SubJsonService) GetJson(subId string, host string, alwaysReturnArray bo
 			continue
 		}
 		subReq.projectThroughFallbackMaster(inbound)
-		if hostEps := subReq.hostEndpoints(inbound, "json"); len(hostEps) > 0 {
+		if hostEps := subReq.hostEndpoints(inbound, "json"); hostEps != nil {
+			if len(hostEps) == 0 {
+				if countHiddenClients(clients, seenEmails) {
+					hasEnabledClient = true
+				}
+				hasSuppressedEntries = true
+				continue
+			}
 			injectExternalProxy(inbound, hostEps)
 		}
 
@@ -192,7 +199,7 @@ func (s *SubJsonService) GetJson(subId string, host string, alwaysReturnArray bo
 		}
 		if !ext.Active {
 			seenEmails[ext.Email] = struct{}{}
-			hasInactiveExternal = true
+			hasSuppressedEntries = true
 			continue
 		}
 		for _, el := range expandEntry(ext) {
@@ -216,7 +223,7 @@ func (s *SubJsonService) GetJson(subId string, host string, alwaysReturnArray bo
 		}
 	}
 
-	if len(configArray) == 0 && !hasInactiveExternal {
+	if len(configArray) == 0 && !hasSuppressedEntries {
 		return "", "", nil
 	}
 
@@ -611,6 +618,10 @@ func (s *SubJsonService) getConfig(subReq *SubService, inbound *model.Inbound, c
 		if !ok {
 			continue
 		}
+		// Rendering a host must not change the source inbound used by siblings,
+		// later clients or subsequent link exports.
+		workingInbound := *inbound
+		inbound := &workingInbound
 		// Expand the host's {{VAR}} remark template for this client (no-op for
 		// the synthetic/legacy entry) before it's used as the config remark.
 		subReq.renderHostRemark(inbound, client, extPrxy, network)

@@ -55,7 +55,7 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 	}
 
 	var proxies []map[string]any
-	var hasInactiveExternal bool
+	var hasSuppressedEntries bool
 	var hasEnabledClient bool
 
 	seenEmails := make(map[string]struct{})
@@ -71,7 +71,14 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 			continue
 		}
 		subReq.projectThroughFallbackMaster(inbound)
-		if hostEps := subReq.hostEndpoints(inbound, "clash"); len(hostEps) > 0 {
+		if hostEps := subReq.hostEndpoints(inbound, "clash"); hostEps != nil {
+			if len(hostEps) == 0 {
+				if countHiddenClients(clients, seenEmails) {
+					hasEnabledClient = true
+				}
+				hasSuppressedEntries = true
+				continue
+			}
 			injectExternalProxy(inbound, hostEps)
 		}
 		for _, client := range clients {
@@ -90,7 +97,7 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 		// quota header does not shrink because a node is unrepresentable in Clash.
 		seenEmails[ext.Email] = struct{}{}
 		if !ext.Active {
-			hasInactiveExternal = true
+			hasSuppressedEntries = true
 			continue
 		}
 		for _, el := range expandEntry(ext) {
@@ -104,7 +111,7 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 		}
 	}
 
-	if len(proxies) == 0 && !hasInactiveExternal {
+	if len(proxies) == 0 && !hasSuppressedEntries {
 		return "", "", nil
 	}
 	if legacy {

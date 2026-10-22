@@ -13,17 +13,17 @@ import (
 // hostEndpoints loads an inbound's enabled hosts for the given subscription
 // format ("raw"|"json"|"clash") and returns them as externalProxy-shaped maps so
 // the existing per-format renderers can fan out one link/proxy per host. Returns
-// nil when the inbound has no applicable host — the caller then uses the legacy
-// inbound/externalProxy path, preserving byte-identical output for zero-host
-// inbounds.
+// nil only when no hosts are configured. A non-nil empty slice means configured
+// hosts were disabled/excluded: callers must omit them, never revive the legacy
+// inbound/externalProxy endpoint. Database errors also fail closed.
 func (s *SubService) hostEndpoints(inbound *model.Inbound, format string) []map[string]any {
 	var hosts []*model.Host
 	if err := database.GetDB().
-		Where("inbound_id = ? AND is_disabled = ?", inbound.Id, false).
+		Where("inbound_id = ?", inbound.Id).
 		Order("sort_order asc, id asc").
 		Find(&hosts).Error; err != nil {
 		logger.Warning("SubService - hostEndpoints:", err)
-		return nil
+		return []map[string]any{}
 	}
 	if len(hosts) == 0 {
 		return nil
@@ -31,7 +31,7 @@ func (s *SubService) hostEndpoints(inbound *model.Inbound, format string) []map[
 	defaultDest := s.resolveInboundAddress(inbound)
 	eps := make([]map[string]any, 0, len(hosts))
 	for _, h := range hosts {
-		if slices.Contains(h.ExcludeFromSubTypes, format) {
+		if h.IsDisabled || slices.Contains(h.ExcludeFromSubTypes, format) {
 			continue
 		}
 		eps = append(eps, hostToExternalProxyMap(h, defaultDest, inbound.Port))

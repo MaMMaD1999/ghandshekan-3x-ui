@@ -102,7 +102,7 @@ func TestSub_NHosts_EmitsNLinksOrdered(t *testing.T) {
 	}
 }
 
-// #3 — a disabled host is omitted; the inbound falls back to its legacy link.
+// #3 — disabling the last configured host must not expose the legacy endpoint.
 func TestSub_DisabledHostSkipped(t *testing.T) {
 	seedSubDB(t)
 	ib := seedSubInbound(t, "s1", "d", 4433, 1, wsTLSStream)
@@ -116,8 +116,8 @@ func TestSub_DisabledHostSkipped(t *testing.T) {
 	if strings.Contains(joined, "off.cdn.com") {
 		t.Fatalf("disabled host must not render: %s", joined)
 	}
-	if !strings.Contains(joined, "203.0.113.5:4433") {
-		t.Fatalf("with only a disabled host, the inbound's own link should render: %s", joined)
+	if joined != "" {
+		t.Fatalf("with only a disabled host, no legacy replacement should render: %s", joined)
 	}
 }
 

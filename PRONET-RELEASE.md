@@ -1,3 +1,7 @@
+## v3.10.2-pronet.19 — predictable host toggles in subscriptions
+
+Disabling or excluding the last configured host no longer revives the inbound address or legacy external proxies. Raw, JSON, Clash, QR and inbound exports share the same host-selection rule. Client usage and quota headers remain intact when links are suppressed. JSON host rendering keeps the source inbound unchanged. Regression tests cover partial/all disables, per-format exclusions, sibling endpoints, quota headers, master host persistence, and legacy zero-host output.
+
 ## v3.10.2-pronet.18 — country flags on every installation path
 
 Keeps the master host persistence fix from v17. Bundles the country font inside CSS so custom panel paths and subscription pages cannot request a broken absolute /assets/ URL. Login, management and subscription entrypoints all load the same font. CI checks the built font data in each entrypoint.
