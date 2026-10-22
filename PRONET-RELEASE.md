@@ -1,3 +1,7 @@
+## v3.10.2-pronet.22 - subscription-only usage cards
+
+Per-user usage cards are no longer shown in inbound details. Each subscriber keeps their own cards and date-range history on their subscription page. Cards charged less than 10 MiB remain hidden in both lifetime and selected-range views; accounting ledgers, quota totals and reporting APIs are unchanged.
+
 ## v3.10.2-pronet.21 — keep deleted hosts out of subscriptions
 
 Deleting the last host no longer resurrects migrated externalProxy addresses or a raw endpoint. A persistent, automatically maintained host-catalog marker distinguishes an intentionally empty catalog from an inbound that has never had hosts. It survives restarts, host CRUD and inbound edits; existing catalogs and migrated proxy settings are marked without recreating hosts or changing traffic counters. Raw, JSON, Clash, QR and inbound exports agree. Fresh inbounds with no host history retain their direct endpoint.

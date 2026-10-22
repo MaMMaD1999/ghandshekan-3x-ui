@@ -1,4 +1,3 @@
-import ProNetTrafficCards from '@/components/ProNetTrafficCards';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal, Tag } from 'antd';
@@ -63,7 +62,6 @@ export default function InboundStatsModal({
     >
       {record && (
         <div className="card-stats">
-          <ProNetTrafficCards rows={record.detailedTraffic || []} />
           <div className="stat-row">
             <span className="stat-label">{t('pages.inbounds.protocol')}</span>
             <Tag color="purple">{record.protocol}</Tag>
