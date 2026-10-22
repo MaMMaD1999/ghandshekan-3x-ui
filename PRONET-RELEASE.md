@@ -1,3 +1,7 @@
+## v3.10.2-pronet.21 — keep deleted hosts out of subscriptions
+
+Deleting the last host no longer resurrects migrated externalProxy addresses or a raw endpoint. A persistent, automatically maintained host-catalog marker distinguishes an intentionally empty catalog from an inbound that has never had hosts. It survives restarts, host CRUD and inbound edits; existing catalogs and migrated proxy settings are marked without recreating hosts or changing traffic counters. Raw, JSON, Clash, QR and inbound exports agree. Fresh inbounds with no host history retain their direct endpoint.
+
 ## v3.10.2-pronet.20 — predictable host toggles in subscriptions
 
 Disabling or excluding the last configured host no longer revives the inbound address or legacy external proxies. Raw, JSON, Clash, QR and inbound exports share the same host-selection rule. Client usage and quota headers remain intact when links are suppressed. JSON host rendering keeps the source inbound unchanged. Deep copies isolate transport headers/paths, Reality/TLS settings and mask arrays between endpoints. Regression tests cover partial/all disables, per-format exclusions, sibling endpoints, quota headers, master host persistence, and legacy zero-host output.

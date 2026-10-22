@@ -13,7 +13,7 @@ import (
 // hostEndpoints loads an inbound's enabled hosts for the given subscription
 // format ("raw"|"json"|"clash") and returns them as externalProxy-shaped maps so
 // the existing per-format renderers can fan out one link/proxy per host. Returns
-// nil only when no hosts are configured. A non-nil empty slice means configured
+// nil only when hosts have never been configured. A non-nil empty slice means configured
 // hosts were disabled/excluded: callers must omit them, never revive the legacy
 // inbound/externalProxy endpoint. Database errors also fail closed.
 func (s *SubService) hostEndpoints(inbound *model.Inbound, format string) []map[string]any {
@@ -26,6 +26,12 @@ func (s *SubService) hostEndpoints(inbound *model.Inbound, format string) []map[
 		return []map[string]any{}
 	}
 	if len(hosts) == 0 {
+		var stream map[string]any
+		_ = json.Unmarshal([]byte(inbound.StreamSettings), &stream)
+		legacy, _ := stream["externalProxy"].([]any)
+		if inbound.HostsManaged || len(legacy) > 0 {
+			return []map[string]any{}
+		}
 		return nil
 	}
 	defaultDest := s.resolveInboundAddress(inbound)

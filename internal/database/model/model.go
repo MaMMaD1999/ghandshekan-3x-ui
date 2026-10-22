@@ -47,6 +47,9 @@ type User struct {
 
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
+	// Once hosts have been configured, an empty catalog means deliberately no
+	// share endpoints. Keep this across deletion, edits, restarts and node polls.
+	HostsManaged         bool                   `json:"hostsManaged,omitempty" gorm:"default:false"`
 	TrafficCoefficient   *float64               `json:"trafficCoefficient,omitempty" form:"trafficCoefficient"`
 	AccountingVersion    int                    `json:"accountingVersion,omitempty" gorm:"-"`
 	DetailedTraffic      []InboundTrafficDetail `json:"detailedTraffic,omitempty" gorm:"-"`

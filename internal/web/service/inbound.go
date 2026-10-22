@@ -2230,7 +2230,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 			}
 		}
 
-		if err := tx.Save(oldInbound).Error; err != nil {
+		if err := tx.Omit("HostsManaged").Save(oldInbound).Error; err != nil {
 			return err
 		}
 		newClients, gcErr := s.GetClients(oldInbound)

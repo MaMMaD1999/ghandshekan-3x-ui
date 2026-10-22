@@ -17,6 +17,17 @@ type hostToggleOutput struct {
 	header  string
 }
 
+func TestDeletedMigratedHostsNeverReviveLegacyAddresses(t *testing.T) {
+	seedSubDB(t)
+	seedSubInbound(t, "toggle-sub", "old", 4540, 1,
+		`{"network":"tcp","externalProxy":[{"dest":"stale-a.example","port":1234},{"dest":"stale-b.example","port":1234}]}`)
+	for format, result := range captureHostToggle(t) {
+		if len(result.entries) != 0 {
+			t.Fatalf("%s revived deleted legacy hosts: %v", format, result.entries)
+		}
+	}
+}
+
 // Compare transport settings, not first-link display annotations or YAML names.
 func captureHostToggle(t *testing.T) map[string]hostToggleOutput {
 	t.Helper()
@@ -81,7 +92,7 @@ func captureHostToggle(t *testing.T) map[string]hostToggleOutput {
 }
 
 func TestHostToggleOnlyRemovesSelectedEndpointsAcrossFormats(t *testing.T) {
-	for _, filter := range []string{"disabled", "excluded"} {
+	for _, filter := range []string{"disabled", "excluded", "deleted"} {
 		t.Run(filter, func(t *testing.T) {
 			seedSubDB(t)
 			a := seedSubInbound(t, "toggle-sub", "a", 4541, 1, wsTLSStream)
@@ -99,6 +110,8 @@ func TestHostToggleOnlyRemovesSelectedEndpointsAcrossFormats(t *testing.T) {
 				var err error
 				if filter == "disabled" {
 					err = database.GetDB().Model(&model.Host{}).Where("id = ?", h.Id).Update("is_disabled", true).Error
+				} else if filter == "deleted" {
+					err = database.GetDB().Delete(h).Error
 				} else {
 					err = database.GetDB().Model(&model.Host{}).Where("id = ?", h.Id).Update("exclude_from_sub_types", `["raw","json","clash"]`).Error
 				}
@@ -122,6 +135,9 @@ func TestHostToggleOnlyRemovesSelectedEndpointsAcrossFormats(t *testing.T) {
 				}
 			}
 			// Share/QR and inbound exports must make the same choice as subscriptions.
+			if err := database.GetDB().First(a, a.Id).Error; err != nil {
+				t.Fatal(err)
+			}
 			p := NewLinkProvider()
 			if links := p.LinksForClient("request.example", a, "a@e"); len(links) != 0 {
 				t.Fatalf("filtered host client export leaked legacy: %v", links)

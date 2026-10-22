@@ -1541,6 +1541,9 @@ func runSeeders(isUsersEmpty bool) error {
 	if err := seedHostsFromExternalProxy(); err != nil {
 		return err
 	}
+	if err := backfillManagedHosts(); err != nil {
+		return err
+	}
 
 	if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
 		return err
