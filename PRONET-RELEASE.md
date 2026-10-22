@@ -1,3 +1,7 @@
+## v3.10.2-pronet.23 - remove sponsor and advertising surfaces
+
+Removes sponsor navigation, command-palette entries, login/dashboard ad slots and donation buttons from desktop and mobile layouts. Old sponsor-page bookmarks return to the dashboard. Compatibility endpoints return an empty sponsor catalog and no logos without contacting the sponsor service. Subscription usage cards, accounting, inbound and protocol settings are unchanged.
+
 ## v3.10.2-pronet.22 - subscription-only usage cards
 
 Per-user usage cards are no longer shown in inbound details. Each subscriber keeps their own cards and date-range history on their subscription page. Cards charged less than 10 MiB remain hidden in both lifetime and selected-range views; accounting ledgers, quota totals and reporting APIs are unchanged.
