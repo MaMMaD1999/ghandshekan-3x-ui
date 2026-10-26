@@ -43,7 +43,7 @@ func TestTrafficResetClearsCardsAndDatedHistoryButPreservesLifetime(t *testing.T
 	}
 	lifetime.RawDown += 10
 	lifetime.BilledDown += 20
-	if err := db.Save(&lifetime).Error; err != nil {
+	if err := db.Model(&model.InboundTrafficDetail{}).Where("email = ? AND inbound_tag = ? AND origin_guid = ? AND rate_parts = ?", lifetime.Email, lifetime.InboundTag, lifetime.OriginGuid, lifetime.RateParts).Updates(map[string]any{"raw_down": lifetime.RawDown, "billed_down": lifetime.BilledDown}).Error; err != nil {
 		t.Fatal(err)
 	}
 	got = ProNetSubscriptionTraffic([]string{row.Email})

@@ -56,6 +56,7 @@ func migrationModels() []any {
 		&model.NodeClientTraffic{},
 		&model.InboundTrafficDetail{},
 		&model.InboundTrafficHistory{},
+		&model.InboundTrafficReportBaseline{},
 		&model.NodeClientIp{},
 		&model.ClientGlobalTraffic{},
 		&model.NodePendingReset{},
