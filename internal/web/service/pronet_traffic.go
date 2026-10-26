@@ -230,7 +230,7 @@ func mirrorDetailedTraffic(tx *gorm.DB, remote, central *model.Inbound, origin s
 			continue
 		}
 		if err == nil && r.ReportResetAt > old.ReportResetAt && r.ReportResetAt > 0 {
-			if e := tx.Where("origin_guid = ? AND inbound_tag = ? AND email = ?", origin, central.Tag, r.Email).Delete(&model.InboundTrafficHistory{}).Error; e != nil {
+			if e := tx.Where("origin_guid = ? AND inbound_tag = ? AND email = ? AND rate_parts = ?", origin, central.Tag, r.Email, r.RateParts).Delete(&model.InboundTrafficHistory{}).Error; e != nil {
 				return e
 			}
 			old.RawUp, old.RawDown = r.ReportBaseRawUp, r.ReportBaseRawDown
