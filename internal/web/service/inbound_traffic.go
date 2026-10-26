@@ -677,6 +677,9 @@ func (s *InboundService) delClientStatsByEmails(tx *gorm.DB, emails []string) er
 func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 	err := submitTrafficWrite(func() error {
 		return database.GetDB().Transaction(func(tx *gorm.DB) error {
+			if err := resetTrafficReports(tx, clientEmail); err != nil {
+				return err
+			}
 			if err := adjustGroupBaselinesForRemovedTraffic(tx, []string{clientEmail}); err != nil {
 				return err
 			}
@@ -776,6 +779,9 @@ func (s *InboundService) resetClientTrafficLocked(id int, clientEmail string) (b
 	}
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		if err := adjustGroupBaselinesForRemovedTraffic(tx, []string{clientEmail}); err != nil {
+			return err
+		}
+		if err := resetTrafficReports(tx, clientEmail); err != nil {
 			return err
 		}
 		if err := tx.Save(traffic).Error; err != nil {

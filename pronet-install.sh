@@ -8,33 +8,33 @@ for command in systemctl curl tar sha256sum openssl python3 flock; do
 done
 if [[ "$VERSION" == latest ]]; then
   # Public releases includes published prereleases; /releases/latest excludes them.
-  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=100')
+  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/releases?per_page=100')
   VERSION=$(printf '%s\n' "$releases" | python3 -c '
 import json, re, sys
 required = {"checksums.txt", "x-ui-linux-amd64.tar.gz", "x-ui-linux-arm64.tar.gz"}
 versions = []
 for release in json.load(sys.stdin):
-    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)-pronet\.(\d+)", release.get("tag_name", ""))
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)-(?:pronet|ghandshekan)\.(\d+)", release.get("tag_name", ""))
     assets = {a.get("name") for a in release.get("assets", [])}
     if match and not release.get("draft") and required <= assets:
         versions.append((tuple(map(int, match.groups())), release["tag_name"]))
 if not versions:
-    raise SystemExit("No complete published ProNet release found; nothing changed.")
+    raise SystemExit("No complete published GhandShekan release found; nothing changed.")
 print(max(versions)[1])
 ')
 fi
-[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { echo 'Invalid ProNet release version; nothing changed.' >&2; exit 1; }
-printf 'Selected ProNet release: %s\n' "$VERSION"
+[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(pronet|ghandshekan)\.[0-9]+$ ]] || { echo 'Invalid GhandShekan release version; nothing changed.' >&2; exit 1; }
+printf 'Selected GhandShekan release: %s\n' "$VERSION"
 mkdir -p /run/lock
 exec 9>/run/lock/pronet-update.lock
-flock -n 9 || { echo 'Another ProNet installation or update is running.' >&2; exit 1; }
+flock -n 9 || { echo 'Another GhandShekan installation or update is running.' >&2; exit 1; }
 case "$(uname -m)" in
   x86_64) arch=amd64;;
   aarch64|arm64) arch=arm64;;
   *) echo 'Only amd64 and arm64 are supported.' >&2; exit 1;;
 esac
 stage=$(mktemp -d /tmp/pronet-install.XXXXXXXX)
-base="https://github.com/MaMMaD1999/pronet-3x-ui/releases/download/$VERSION"
+base="https://github.com/MaMMaD1999/ghandshekan-3x-ui/releases/download/$VERSION"
 archive="x-ui-linux-$arch.tar.gz"
 curl --fail --location --retry 3 --proto '=https' "$base/$archive" -o "$stage/$archive"
 curl --fail --location --retry 3 --proto '=https' "$base/checksums.txt" -o "$stage/checksums.txt"
@@ -154,7 +154,7 @@ if [[ -z "$panel_host" ]]; then
   panel_host="${panel_host:-$(hostname -I | awk '{print $1}')}"
 fi
 [[ "$panel_host" != *:* ]] || panel_host="[$panel_host]"
-printf '\n========== ProNet installation complete ==========\nVersion: %s\n' "$VERSION"
+printf '\n========== GhandShekan installation complete ==========\nVersion: %s\n' "$VERSION"
 if [[ -n "$panel_host" ]]; then
   printf 'Login URL: %s://%s:%s%s\n' "$scheme" "$panel_host" "$panel_port" "$panel_path"
 else

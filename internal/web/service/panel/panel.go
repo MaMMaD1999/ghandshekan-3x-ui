@@ -30,7 +30,7 @@ import (
 // It handles panel restart, updates, and system-level panel controls.
 type PanelService struct{}
 
-// PanelUpdateInfo contains the current and latest available ProNet versions.
+// PanelUpdateInfo contains the current and latest available GhandShekan versions.
 type PanelUpdateInfo struct {
 	Channel         string `json:"channel"`
 	CurrentVersion  string `json:"currentVersion"`
@@ -41,7 +41,7 @@ type PanelUpdateInfo struct {
 }
 
 const (
-	panelUpdaterURL      = "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/%s/pronet-update.sh"
+	panelUpdaterURL      = "https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/%s/pronet-update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	// devReleaseTag is the fixed-tag rolling pre-release the CI force-moves to the
 	// newest main commit; the dev update channel installs from it.
@@ -129,9 +129,9 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 	return nil
 }
 
-// GetUpdateInfo checks the latest complete ProNet release published in the
+// GetUpdateInfo checks the latest complete GhandShekan release published in the
 // custom fork. Upstream releases and the rolling development channel are not
-// used by ProNet installations.
+// used by GhandShekan installations.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 	latest, err := fetchLatestPanelVersion()
 	if err != nil {
@@ -178,18 +178,18 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
 	}, nil
 }
 
-// StartUpdate starts the updater for the latest complete ProNet release.
+// StartUpdate starts the updater for the latest complete GhandShekan release.
 // Returns the run ID to pass to GetUpdateStatus so callers can distinguish
 // this run from a stale result.
 func (s *PanelService) StartUpdate() (int64, error) {
 	return s.startUpdate(false)
 }
 
-// StartUpdateChannel preserves the node-update API contract. ProNet nodes only
+// StartUpdateChannel preserves the node-update API contract. GhandShekan nodes only
 // accept published custom releases; upstream dev-channel requests are rejected.
 func (s *PanelService) StartUpdateChannel(dev bool) (int64, error) {
 	if dev {
-		return 0, fmt.Errorf("ProNet updates use published custom releases only")
+		return 0, fmt.Errorf("GhandShekan updates use published custom releases only")
 	}
 	return s.startUpdate(false)
 }
@@ -217,14 +217,14 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
 
 func (s *PanelService) startUpdate(useDev bool) (int64, error) {
 	if useDev {
-		return 0, fmt.Errorf("ProNet updates use published custom releases only; disable the development channel")
+		return 0, fmt.Errorf("GhandShekan updates use published custom releases only; disable the development channel")
 	}
 	latest, err := fetchLatestPanelVersion()
 	if err != nil {
 		return 0, err
 	}
 	if !isNewerVersion(latest, config.GetBaseVersion()) {
-		return 0, fmt.Errorf("ProNet is already up to date")
+		return 0, fmt.Errorf("GhandShekan is already up to date")
 	}
 
 	runID := time.Now().UnixNano()
@@ -486,12 +486,12 @@ func fetchLatestPanelVersion() (string, error) {
 	return cachedReleaseTag, nil
 }
 
-// fetchPanelRelease fetches a complete release from the ProNet fork. The empty
+// fetchPanelRelease fetches a complete release from the GhandShekan fork. The empty
 // tag selects the newest complete custom release; a non-empty tag resolves it.
 func fetchPanelRelease(tag string) (*service.Release, error) {
-	url := "https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases?per_page=100"
+	url := "https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/releases?per_page=100"
 	if tag != "" {
-		url = "https://api.github.com/repos/MaMMaD1999/pronet-3x-ui/releases/tags/" + tag
+		url = "https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/releases/tags/" + tag
 	}
 	client := (&service.SettingService{}).NewProxiedHTTPClient(10 * time.Second)
 	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
@@ -520,7 +520,7 @@ func fetchPanelRelease(tag string) (*service.Release, error) {
 		}
 		var best *service.Release
 		for _, r := range releases {
-			if r.Draft || !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$`).MatchString(r.TagName) {
+			if r.Draft || !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-(?:pronet|ghandshekan)\.[0-9]+$`).MatchString(r.TagName) {
 				continue
 			}
 			files := map[string]bool{}
@@ -536,7 +536,7 @@ func fetchPanelRelease(tag string) (*service.Release, error) {
 			}
 		}
 		if best == nil {
-			return nil, fmt.Errorf("no complete ProNet release found")
+			return nil, fmt.Errorf("no complete GhandShekan release found")
 		}
 		return best, nil
 	}

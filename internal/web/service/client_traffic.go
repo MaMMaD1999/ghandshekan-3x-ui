@@ -93,6 +93,9 @@ func (s *ClientService) BulkResetTraffic(inboundSvc *InboundService, emails []st
 			if err := clearGlobalTraffic(tx, cleanEmails...); err != nil {
 				return err
 			}
+			if err := resetTrafficReports(tx, cleanEmails...); err != nil {
+				return err
+			}
 			for _, batch := range chunkStrings(cleanEmails, sqlInChunk) {
 				if err := tx.Where("email IN ?", batch).Delete(&model.NodeClientTraffic{}).Error; err != nil {
 					return err
@@ -183,6 +186,9 @@ func (s *ClientService) resetAllClientTrafficsLocked(id int) ([]string, []int, e
 		if err := clearGlobalTraffic(tx, resetEmails...); err != nil {
 			return err
 		}
+		if err := resetTrafficReports(tx, resetEmails...); err != nil {
+			return err
+		}
 
 		for _, batch := range chunkStrings(resetEmails, sqlInChunk) {
 			if err := tx.Where("email IN ?", batch).Delete(&model.NodeClientTraffic{}).Error; err != nil {
@@ -217,6 +223,9 @@ func (s *ClientService) ResetAllTraffics() (bool, error) {
 	var resetNodes []int
 	err := submitTrafficWrite(func() error {
 		return database.GetDB().Transaction(func(tx *gorm.DB) error {
+			if err := resetTrafficReports(tx); err != nil {
+				return err
+			}
 			res := tx.Model(&xray.ClientTraffic{}).
 				Where("1 = 1").
 				Updates(map[string]any{"enable": true, "up": 0, "down": 0})

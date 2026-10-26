@@ -130,14 +130,14 @@ before_show_menu() {
 
 install() {
     local version="${PRONET_VERSION:-latest}" ref=main temp
-    [[ "$version" == latest || "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Invalid custom release"; return 1; }
+    [[ "$version" == latest || "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(pronet|ghandshekan)\.[0-9]+$ ]] || { LOGE "Invalid custom release"; return 1; }
     [[ "$version" == latest ]] || ref="$version"
     if [[ "${running_in_docker:-false}" == true ]]; then
         LOGE "Use the panel's web Update action inside Docker, or recreate the container with the new custom image and existing volumes."
         return 1
     fi
     temp=$(mktemp) || return 1
-    if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/$ref/pronet-install.sh" -o "$temp"; then
+    if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/$ref/pronet-install.sh" -o "$temp"; then
         bash "$temp" "$version"
         local result=$?
         rm -f "$temp"
@@ -148,12 +148,12 @@ install() {
 }
 
 update() {
-    confirm "Update the complete ProNet custom package, preserving settings?" "y" || return 0
+    confirm "Update the complete GhandShekan custom package, preserving settings?" "y" || return 0
     install
 }
 
 update_dev() {
-    LOGI "Official/dev builds would remove custom accounting. Use Update for the ProNet release."
+    LOGI "Official/dev builds would remove custom accounting. Use Update for the GhandShekan release."
     [[ $# != 0 ]] || before_show_menu
 }
 
@@ -197,8 +197,8 @@ installed_script_url() {
     local version
     version=$("${xui_folder}/x-ui" -v 2>/dev/null)
     version="v${version#v}"
-    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || version=main
-    echo "https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/$version/x-ui.sh"
+    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(pronet|ghandshekan)\.[0-9]+$ ]] || version=main
+    echo "https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/$version/x-ui.sh"
 }
 
 update_menu() {
@@ -225,7 +225,7 @@ update_menu() {
 legacy_version() {
     local version
     read -rp "Custom release (for example v3.10.2-pronet.7): " version
-    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || { LOGE "Only ProNet custom releases are accepted."; return 1; }
+    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(pronet|ghandshekan)\.[0-9]+$ ]] || { LOGE "Only GhandShekan custom releases are accepted."; return 1; }
     PRONET_VERSION="$version" install
 }
 
@@ -294,7 +294,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/pronet-3x-ui/main/pronet-install.sh)${plain}"
+    echo -e "${green}bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/main/pronet-install.sh)${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM
@@ -2816,7 +2816,7 @@ pg_require_installed() {
 # any other application sharing this PostgreSQL instance loses its data too. Mirrors the
 # package names used by pg_install_local() so the right packages are removed per distro.
 purge_postgresql() {
-    LOGI "PostgreSQL and all databases are preserved. Global database removal is disabled in ProNet because other applications may share this server."
+    LOGI "PostgreSQL and all databases are preserved. Global database removal is disabled in GhandShekan because other applications may share this server."
     return 0
 }
 
@@ -3426,7 +3426,7 @@ show_usage() {
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
-│  ${green}ProNet / 3X-UI Management${plain}                │
+│  ${green}GhandShekan / 3X-UI Management${plain}                │
 │  ${green}0.${plain} Exit Script                               │
 │────────────────────────────────────────────────│
 │  ${green}1.${plain} Install                                   │

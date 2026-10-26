@@ -1,3 +1,4 @@
+import brandMark from '@/assets/ghandshekan-mark.png';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router';
@@ -48,7 +49,7 @@ import './AppSidebar.css';
 // Mac glyph to the Linux and Windows operators who are most of this panel's.
 const SHORTCUT_MODIFIER = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 const DOCS_URL = 'https://docs.sanaei.dev/';
-const REPO_URL = 'https://github.com/MaMMaD1999/pronet-3x-ui';
+const REPO_URL = 'https://github.com/MaMMaD1999/ghandshekan-3x-ui';
 const LOGOUT_KEY = '__logout__';
 const RAIL_WIDTH = 72;
 const SIDER_WIDTH = 220;
@@ -360,8 +361,8 @@ export default function AppSidebar() {
         collapsed={railCollapsed}
       >
         <div className="sider-brand">
-          <div className="brand-block">
-            <span className="brand-text">{railCollapsed ? '3X' : '3X-UI'}</span>
+          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
+            <span className="brand-text">{railCollapsed ? '' : 'GhandShekan Pro'}</span>
           </div>
           {!railCollapsed && (
             <div className="brand-actions">
@@ -447,8 +448,8 @@ export default function AppSidebar() {
         onClose={() => setDrawerOpen(false)}
       >
         <div className="drawer-header">
-          <div className="brand-block">
-            <span className="drawer-brand">3X-UI</span>
+          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
+            <img src={brandMark} alt="" width={32} height={36}/><span className="drawer-brand">GhandShekan Pro</span>
           </div>
           <div className="drawer-header-actions">
             <DocsButton ariaLabel={t('menu.docs') || 'Documentation'} />

@@ -89,6 +89,7 @@ func ProNetSubscriptionTraffic(emails []string) []model.InboundTrafficDetail {
 		return nil
 	}
 	nameTrafficRows(db, rows)
+	applyTrafficReportBaselines(db, rows, emails)
 	return rows
 }
 

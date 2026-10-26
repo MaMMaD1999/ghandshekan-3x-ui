@@ -1,3 +1,13 @@
+# GhandShekan Pro — custom panel
+
+پنل سفارشی قندشکن پرو؛ آمار خام و محاسبه‌شده، ضریب اینباند، گزارش شمسی و به‌روزرسانی امن.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/main/ghandshekan-install.sh)
+```
+
+Updates preserve the existing database, service paths and client identities.
+
 # ProNet custom 3x-ui
 
 This fork adds per-user/per-inbound raw and billed accounting, native quota coefficients, and subscription traffic cards. Use the [ProNet release and installation instructions](PRONET-RELEASE.md). **Do not use the upstream installer or updater below: they replace the custom core.**

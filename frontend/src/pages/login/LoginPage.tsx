@@ -1,3 +1,4 @@
+import brandMark from '@/assets/ghandshekan-mark.png';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -178,8 +179,8 @@ export default function LoginPage() {
               </div>
             ) : (
               <div className="login-card">
-                <div className="brand">
-                  <span className="brand-name">3X-UI</span>
+                <div className="brand"><img src={brandMark} alt="" width={58} height={66} style={{objectFit:"contain"}}/>
+                  <span className="brand-name">GhandShekan Pro</span>
                   <span className="brand-accent" aria-hidden="true" />
                 </div>
                 <h2 className="welcome">

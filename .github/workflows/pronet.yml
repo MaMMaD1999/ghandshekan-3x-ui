@@ -1,4 +1,4 @@
-name: ProNet validation
+name: GhandShekan validation
 on:
   push:
     branches: [main, pronet/main]

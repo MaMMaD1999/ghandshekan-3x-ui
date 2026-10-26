@@ -27,9 +27,9 @@ class InstallerTest(unittest.TestCase):
             {'tag_name': 'v3.10.2-pronet.9', 'draft': False, 'prerelease': True, 'assets': assets},
         ]
         fixture = 'set -euo pipefail\nVERSION=latest\ncurl(){ cat <<\'JSON\'\n' + json.dumps(releases, indent=2) + '\nJSON\n}\n'
-        self.assertIn('Selected ProNet release: v3.10.2-pronet.9', self.run_shell(fixture + resolver))
+        self.assertIn('Selected GhandShekan release: v3.10.2-pronet.9', self.run_shell(fixture + resolver))
         explicit = 'set -euo pipefail; VERSION=v3.10.2-pronet.5; curl(){ return 99; };\n'
-        self.assertIn('Selected ProNet release: v3.10.2-pronet.5', self.run_shell(explicit + resolver))
+        self.assertIn('Selected GhandShekan release: v3.10.2-pronet.5', self.run_shell(explicit + resolver))
 
     def run_shell(self, text, input=''):
         text = 'python3(){ ' + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"; }\n' + text
@@ -44,8 +44,8 @@ class InstallerTest(unittest.TestCase):
             self.assertIn(label, output)
         self.assertNotIn('raw.githubusercontent.com/MHSanaei', MENU)
         self.assertNotIn('raw.githubusercontent.com/mhsanaei', MENU)
-        self.assertIn('MaMMaD1999/pronet-3x-ui', function('installed_script_url'))
-        self.assertIn('Only ProNet custom', function('legacy_version'))
+        self.assertIn('MaMMaD1999/ghandshekan-3x-ui', function('installed_script_url'))
+        self.assertIn('Only GhandShekan custom', function('legacy_version'))
 
     def test_menu_default_update_requests_latest_not_an_old_pinned_release(self):
         fixture = '''set -euo pipefail

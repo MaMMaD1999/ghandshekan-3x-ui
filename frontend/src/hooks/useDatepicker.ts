@@ -42,16 +42,17 @@ export function setDatepicker(value: Calendar) {
   notify(cachedValue);
 }
 
-export function useDatepicker() {
+export function useDatepicker(enabled = true) {
   const [datepicker, setLocal] = useState<Calendar>(cachedValue);
 
   useEffect(() => {
+    if (!enabled) return;
     listeners.add(setLocal);
     loadOnce();
     return () => {
       listeners.delete(setLocal);
     };
-  }, []);
+  }, [enabled]);
 
   return { datepicker };
 }

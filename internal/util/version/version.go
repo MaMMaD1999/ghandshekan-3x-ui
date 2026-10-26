@@ -33,6 +33,9 @@ func Normalize(v string) string {
 func parse(v string) ([4]int, bool) {
 	var result [4]int
 	base, suffix, custom := strings.Cut(Normalize(v), "-pronet.")
+	if !custom {
+		base, suffix, custom = strings.Cut(Normalize(v), "-ghandshekan.")
+	}
 	if custom {
 		n, err := strconv.Atoi(suffix)
 		if err != nil || n < 0 {

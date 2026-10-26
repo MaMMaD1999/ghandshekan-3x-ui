@@ -1,0 +1,10 @@
+.traffic-cards { margin-block:20px; min-width:0; }
+.traffic-cards-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:12px; }
+.traffic-cards-grid article { padding:16px; border:1px solid var(--ant-color-border,#49515d); border-radius:14px; background:var(--ant-color-fill-quaternary,transparent); min-width:0; overflow-wrap:anywhere; }
+.traffic-cards-grid dl { display:grid; grid-template-columns:1fr auto; gap:8px; }
+.traffic-cards-grid dd { margin:0; }
+.traffic-range-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:640px; }
+.traffic-range-fields label { display:grid; gap:7px; min-width:0; }
+.traffic-range-fields .jdp-wrap { min-width:0; }
+.traffic-range-actions { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; }
+@media(max-width:600px) { .traffic-range-fields { grid-template-columns:minmax(0,1fr); } }

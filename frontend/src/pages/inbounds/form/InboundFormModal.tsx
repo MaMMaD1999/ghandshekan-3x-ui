@@ -711,7 +711,7 @@ export default function InboundFormModal({
         </>
       )}
 
-      <FormField name="trafficCoefficient" label={labelWithHint(t('pronet.trafficCoefficient', 'Traffic coefficient'), t('pronet.trafficCoefficientHelp', 'Multiplier applied to subscription quota. 1 = normal, 0 = free. Raw traffic is retained separately. Requires the ProNet Xray core.'))}>
+      <FormField name="trafficCoefficient" label={labelWithHint(t('pronet.trafficCoefficient', 'Traffic coefficient'), t('pronet.trafficCoefficientHelp', 'Multiplier applied to subscription quota. 1 = normal, 0 = free. Raw traffic is retained separately. Requires the GhandShekan Xray core.'))}>
         <InputNumber min={0} max={1000} precision={6} step={0.1} />
       </FormField>
 

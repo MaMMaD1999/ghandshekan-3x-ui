@@ -11,6 +11,7 @@ import { useTheme } from '@/hooks/useTheme';
 import './DateTimePicker.css';
 
 interface DateTimePickerProps {
+  calendar?: 'gregorian' | 'jalalian';
   value: Dayjs | null;
   onChange: (next: Dayjs | null) => void;
   showTime?: boolean;
@@ -57,9 +58,11 @@ export default function DateTimePicker({
   disabled = false,
   allowClear = true,
   maxDate,
+  calendar,
 }: DateTimePickerProps) {
   const { t } = useTranslation();
-  const { datepicker } = useDatepicker();
+  const settings = useDatepicker(calendar == null);
+  const datepicker = calendar ?? settings.datepicker;
   const { isDark, isUltra } = useTheme();
   const jalaliRef = useRef<HTMLDivElement>(null);
   // Bumped on clear: persian-calendar-suite reads `value` only on mount, so

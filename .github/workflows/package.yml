@@ -1,8 +1,8 @@
-name: ProNet packages
+name: GhandShekan packages
 on:
   workflow_dispatch:
   push:
-    tags: ['v*-pronet.*']
+    tags: ['v*-pronet.*', 'v*-ghandshekan.*']
 permissions:
   contents: read
 jobs:
@@ -33,7 +33,7 @@ jobs:
       - run: go test ./internal/xray ./internal/database ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
       - uses: actions/checkout@v7
         with:
-          repository: MaMMaD1999/pronet-xray-core
+          repository: MaMMaD1999/ghandshekan-xray-core
           ref: 7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
           path: .pronet-core
       - run: go test ./app/dispatcher && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../custom-xray ./main
@@ -85,4 +85,4 @@ jobs:
       - run: cd release && sha256sum x-ui-linux-*.tar.gz > checksums.txt
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* pronet-install.sh --prerelease --title "ProNet custom accounting $GITHUB_REF_NAME" --notes-file PRONET-RELEASE.md
+        run: gh release create "$GITHUB_REF_NAME" release/* pronet-install.sh ghandshekan-install.sh --prerelease --title "GhandShekan custom accounting $GITHUB_REF_NAME" --notes-file GHANDSHEKAN-RELEASE.md

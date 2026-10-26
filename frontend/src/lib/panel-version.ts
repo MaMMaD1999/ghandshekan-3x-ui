@@ -4,7 +4,7 @@
 // the same heuristic the Go side uses so the node "update available" badge
 // agrees with what the server would decide.
 function parseVersionParts(version: string): number[] | null {
- const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-pronet\.(\d+))?$/);
+ const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-(?:pronet|ghandshekan)\.(\d+))?$/);
  return match ? [Number(match[1]),Number(match[2]),Number(match[3]),Number(match[4] || 0)] : null;
 }
 

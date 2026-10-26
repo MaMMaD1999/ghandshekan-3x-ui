@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 tag=${XUI_UPDATE_TAG:?}
-[[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-pronet\.[0-9]+$ ]] || exit 2
+[[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(pronet|ghandshekan)\.[0-9]+$ ]] || exit 2
 folder=${XUI_MAIN_FOLDER:?}
 backup=${XUI_BACKUP_FOLDER:?}
 pid=${XUI_UPDATE_PID:?}
@@ -29,6 +29,7 @@ finish() {
    cp "$backup/xray" "$folder/bin/$core.rollback"; mv -f "$folder/bin/$core.rollback" "$folder/bin/$core"
    if [[ -f $backup/x-ui.sh ]]; then cp "$backup/x-ui.sh" "$folder/x-ui.sh.rollback"; mv -f "$folder/x-ui.sh.rollback" "$folder/x-ui.sh"; fi
    if [[ -f $backup/menu ]]; then cp "$backup/menu" /usr/bin/x-ui.rollback; mv -f /usr/bin/x-ui.rollback /usr/bin/x-ui; fi
+   if [[ -f $backup/docker-runtime ]]; then cp "$backup/docker-runtime" "$folder/pronet-docker-runtime.sh.rollback"; mv -f "$folder/pronet-docker-runtime.sh.rollback" "$folder/pronet-docker-runtime.sh"; fi
    if [[ -n $service_unit ]]; then
     systemctl restart "$service_unit"
    elif kill -0 "$pid" 2>/dev/null; then
@@ -48,10 +49,10 @@ if [[ -f /.dockerenv || ${XUI_IN_DOCKER:-false} == true ]]; then
 fi
 mkdir -p "$(dirname "$lock")"
 exec 9>"$lock"
-flock -n 9 || { echo 'Another ProNet installation or update is running.' >&2; exit 1; }
+flock -n 9 || { echo 'Another GhandShekan installation or update is running.' >&2; exit 1; }
 case $(uname -m) in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; *) exit 2;; esac
 core=xray-linux-$arch
-base=https://github.com/MaMMaD1999/pronet-3x-ui/releases/download/$tag
+base=https://github.com/MaMMaD1999/ghandshekan-3x-ui/releases/download/$tag
 curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 --proto '=https' --proto-redir '=https' "$base/x-ui-linux-$arch.tar.gz" -o "$stage/package.tar.gz"
 curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 --proto '=https' --proto-redir '=https' "$base/checksums.txt" -o "$stage/checksums.txt"
 hash=$(awk -v file="x-ui-linux-$arch.tar.gz" '$2==file {print $1}' "$stage/checksums.txt")
@@ -68,6 +69,7 @@ cp -p "$folder/x-ui" "$backup/x-ui"
 cp -p "$folder/bin/$core" "$backup/xray"
 [[ ! -f $folder/x-ui.sh ]] || cp -p "$folder/x-ui.sh" "$backup/x-ui.sh"
 [[ ! -f /usr/bin/x-ui ]] || cp -p /usr/bin/x-ui "$backup/menu"
+[[ ! -f $folder/pronet-docker-runtime.sh ]] || cp -p "$folder/pronet-docker-runtime.sh" "$backup/docker-runtime"
 kill -0 "$pid"
 swapped=1
 mv -f "$stage/x-ui/bin/$core" "$folder/bin/$core"
@@ -79,8 +81,9 @@ if [[ -w /usr/bin ]]; then
  mv -f /usr/bin/x-ui.new /usr/bin/x-ui
 fi
 if [[ -f /.dockerenv || ${XUI_IN_DOCKER:-false} == true ]]; then
- if [[ ! -f $folder/pronet-docker-runtime.sh && -f $stage/x-ui/pronet-docker-runtime.sh ]]; then
-  install -m 755 "$stage/x-ui/pronet-docker-runtime.sh" "$folder/pronet-docker-runtime.sh"
+ if [[ -f $stage/x-ui/pronet-docker-runtime.sh ]]; then
+  install -m 755 "$stage/x-ui/pronet-docker-runtime.sh" "$folder/pronet-docker-runtime.sh.new"
+  mv -f "$folder/pronet-docker-runtime.sh.new" "$folder/pronet-docker-runtime.sh"
   install -m 755 "$stage/x-ui/DockerEntrypoint.sh" "$folder/DockerEntrypoint.sh"
  fi
 fi
@@ -99,8 +102,9 @@ for ((attempt=0; attempt<timeout; attempt++)); do
     mkdir -p "$runtime/releases"
     slot=$(mktemp -d "$runtime/releases/${tag#v}-$run.XXXXXX")
     cp "$folder/x-ui" "$slot/x-ui"; cp "$folder/bin/$core" "$slot/xray"; cp "$folder/x-ui.sh" "$slot/menu"
+    cp "$folder/pronet-docker-runtime.sh" "$slot/bootstrap"
     printf '%s\n' "${tag#v}" > "$slot/version"
-    (cd "$slot" && sha256sum x-ui xray menu > checksums.txt)
+    (cd "$slot" && sha256sum x-ui xray menu bootstrap > checksums.txt)
     ln -s "releases/$(basename "$slot")" "$runtime/current.$run"; mv -Tf "$runtime/current.$run" "$runtime/current"
    fi
    write_status success 0
