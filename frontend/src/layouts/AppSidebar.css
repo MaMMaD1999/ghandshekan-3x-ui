@@ -385,3 +385,9 @@ body.dark .ant-drawer-body .drawer-menu .ant-menu-item-group-list {
 .drawer-header > .brand-block { flex: 1 0 100%; }
 .drawer-header-actions { flex-shrink: 0; margin-inline-start: auto; max-width: 100%; }
 .drawer-header .brand-block img { width: 34px; height: 38px; object-fit: contain; flex: none; }
+
+/* Keep the header/search/footer visible; only the navigation list scrolls. */
+.drawer-header { flex-shrink: 0; }
+.ant-drawer-body > .sidebar-command-trigger { flex: 0 0 auto; min-height: 36px; }
+.drawer-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.drawer-utility { flex-shrink: 0; }
