@@ -122,7 +122,7 @@ if [[ ! -f /etc/systemd/system/x-ui.service ]]; then
 fi
 systemctl daemon-reload
 if [[ "$fresh" == 1 ]]; then
-  username="pronet_$(openssl rand -hex 3)"
+  username="ghand_$(openssl rand -hex 3)"
   password=$(openssl rand -hex 16)
   panel_path="/$(openssl rand -hex 12)/"
   (cd /usr/local/x-ui; ./x-ui setting -username "$username" -password "$password" -port 2053 -webBasePath "$panel_path")

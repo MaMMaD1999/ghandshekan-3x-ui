@@ -16,7 +16,7 @@ FROM golang:1.27-alpine AS pronet-core
 ARG PRONET_CORE_REF=7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
 RUN apk add --no-cache git
 WORKDIR /core
-RUN git init && git remote add origin https://github.com/MaMMaD1999/pronet-xray-core.git \
+RUN git init && git remote add origin https://github.com/MaMMaD1999/ghandshekan-xray-core.git \
   && git fetch --depth 1 origin "$PRONET_CORE_REF" && git checkout --detach FETCH_HEAD
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /custom-xray ./main
 

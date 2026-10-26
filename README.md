@@ -8,9 +8,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui
 
 Updates preserve the existing database, service paths and client identities.
 
-# ProNet custom 3x-ui
+# GhandShekan custom 3x-ui
 
-This fork adds per-user/per-inbound raw and billed accounting, native quota coefficients, and subscription traffic cards. Use the [ProNet release and installation instructions](PRONET-RELEASE.md). **Do not use the upstream installer or updater below: they replace the custom core.**
+This fork adds per-user/per-inbound raw and billed accounting, native quota coefficients, and subscription traffic cards. Use the [GhandShekan release notes](GHANDSHEKAN-RELEASE.md). **Do not use the upstream installer or updater below: they replace the custom core.**
 
 ---
 
