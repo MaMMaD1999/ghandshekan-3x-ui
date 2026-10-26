@@ -65,7 +65,7 @@ jobs:
           "./x-ui/bin/xray-linux-$ARCH" version
           bash -n ../pronet-install.sh ../pronet-cli.sh ../x-ui.sh ../pronet-update.sh
           tar -czf "../x-ui-linux-$ARCH.tar.gz" x-ui
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.arch }}
           path: x-ui-linux-*.tar.gz
