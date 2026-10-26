@@ -12,8 +12,8 @@ RUN npm run build
 # ========================================================
 # Stage: Custom Xray
 # ========================================================
-FROM golang:1.27-alpine AS pronet-core
-ARG PRONET_CORE_REF=7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
+FROM golang:1.27.3-alpine AS pronet-core
+ARG PRONET_CORE_REF=ed08d8db5a57e205129966c707b014bc6b172ed7
 RUN apk add --no-cache git
 WORKDIR /core
 RUN git init && git remote add origin https://github.com/MaMMaD1999/ghandshekan-xray-core.git \
@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /custom-xray ./main
 # ========================================================
 # Stage: Builder
 # ========================================================
-FROM golang:1.27-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 

@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: MaMMaD1999/ghandshekan-xray-core
-          ref: 7f1de5d1db8735f7c40eb3c2dbd5a125f51297dc
+          ref: ed08d8db5a57e205129966c707b014bc6b172ed7
           path: .pronet-core
       - run: go test ./app/dispatcher && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../custom-xray ./main
         working-directory: .pronet-core
