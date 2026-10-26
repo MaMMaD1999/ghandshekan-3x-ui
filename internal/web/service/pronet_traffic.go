@@ -229,6 +229,13 @@ func mirrorDetailedTraffic(tx *gorm.DB, remote, central *model.Inbound, origin s
 		if err == nil && old.UpdatedAt >= r.UpdatedAt {
 			continue
 		}
+		if err == nil && r.ReportResetAt > old.ReportResetAt && r.ReportResetAt > 0 {
+			if e := tx.Where("origin_guid = ? AND inbound_tag = ? AND email = ?", origin, central.Tag, r.Email).Delete(&model.InboundTrafficHistory{}).Error; e != nil {
+				return e
+			}
+			old.RawUp, old.RawDown = r.ReportBaseRawUp, r.ReportBaseRawDown
+			old.BilledUp, old.BilledDown = r.ReportBaseBilledUp, r.ReportBaseBilledDown
+		}
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}

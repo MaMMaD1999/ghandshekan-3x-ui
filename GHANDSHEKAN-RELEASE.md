@@ -1,4 +1,4 @@
-# GhandShekan Pro — v3.10.2-ghandshekan.25
+# GhandShekan Pro — v3.10.2-ghandshekan.28
 
 - Move the custom distribution to the GhandShekan brand, including transparent logo, login/sidebar, installer and update feed. Old release version formats remain supported.
 - Explicit traffic resets clear subscription usage cards and dated history. Lifetime accounting checkpoints remain intact to avoid duplicate billing and stale node reimports. Renewal alone preserves history.

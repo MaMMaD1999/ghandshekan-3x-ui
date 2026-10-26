@@ -24,6 +24,12 @@ func resetTrafficReports(tx *gorm.DB, emails ...string) error {
 	}
 	now := time.Now().UnixMilli()
 	for _, row := range rows {
+		row.ReportResetAt, row.UpdatedAt = now, now
+		row.ReportBaseRawUp, row.ReportBaseRawDown = row.RawUp, row.RawDown
+		row.ReportBaseBilledUp, row.ReportBaseBilledDown = row.BilledUp, row.BilledDown
+		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+			return err
+		}
 		baseline := model.InboundTrafficReportBaseline{InboundTrafficDetail: row, ResetAt: now}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&baseline).Error; err != nil {
 			return err
@@ -52,6 +58,13 @@ func applyTrafficReportBaselines(db *gorm.DB, rows []model.InboundTrafficDetail,
 		byKey[reportKey(b.InboundTrafficDetail)] = b.InboundTrafficDetail
 	}
 	for i := range rows {
+		if rows[i].ReportResetAt > 0 {
+			rows[i].RawUp = max(int64(0), rows[i].RawUp-rows[i].ReportBaseRawUp)
+			rows[i].RawDown = max(int64(0), rows[i].RawDown-rows[i].ReportBaseRawDown)
+			rows[i].BilledUp = max(int64(0), rows[i].BilledUp-rows[i].ReportBaseBilledUp)
+			rows[i].BilledDown = max(int64(0), rows[i].BilledDown-rows[i].ReportBaseBilledDown)
+			continue
+		}
 		if b, ok := byKey[reportKey(rows[i])]; ok {
 			rows[i].RawUp = max(int64(0), rows[i].RawUp-b.RawUp)
 			rows[i].RawDown = max(int64(0), rows[i].RawDown-b.RawDown)
