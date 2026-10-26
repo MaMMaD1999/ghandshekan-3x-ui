@@ -1,7 +1,7 @@
-# GhandShekan Pro — v3.10.2-ghandshekan.29
+# GhandShekan Pro — v3.10.2-ghandshekan.30
 
-- Move the custom distribution to the GhandShekan brand, including transparent logo, login/sidebar, installer and update feed. Old release version formats remain supported.
-- Explicit traffic resets clear subscription usage cards and dated history. Lifetime accounting checkpoints remain intact to avoid duplicate billing and stale node reimports. Renewal alone preserves history.
-- Subscription history uses separate start/end date inputs with a single-month Persian calendar, responsive to mobile widths. Entries below 10 MiB billed usage remain hidden.
-- Preserve Docker runtime restoration and checksummed updates across the brand/version migration.
-- Existing client identities, inbound/host settings, coefficients and quotas are retained during installation/update. Databases and binaries are backed up before replacement.
+- Keep the brand name and small Pro on the same baseline on login, sidebar and mobile navigation.
+- Separate sidebar controls from the brand so they cannot overlap. Remove the duplicate mobile header logo.
+- Use a lossless 256px WebP derived directly from the native logo for interface images, and a small dedicated favicon; keep original brand artwork unchanged.
+- No traffic, quota, subscription, host, inbound or database schema changes.
+- Preserve the existing checksummed native/Docker update and backup flow.

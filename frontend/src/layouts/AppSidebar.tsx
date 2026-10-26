@@ -1,4 +1,4 @@
-import brandMark from '@/assets/ghandshekan-mark.png';
+import brandMark from '@/assets/ghandshekan-mark-256.webp';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router';
@@ -362,7 +362,7 @@ export default function AppSidebar() {
       >
         <div className="sider-brand">
           <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
-            <span className="brand-text">{railCollapsed ? '' : 'GhandShekan Pro'}</span>
+            <span className="brand-text">{!railCollapsed && <>GhandShekan <small className="brand-pro">Pro</small></>}</span>
           </div>
           {!railCollapsed && (
             <div className="brand-actions">
@@ -449,7 +449,7 @@ export default function AppSidebar() {
       >
         <div className="drawer-header">
           <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
-            <img src={brandMark} alt="" width={32} height={36}/><span className="drawer-brand">GhandShekan Pro</span>
+            <span className="drawer-brand">GhandShekan <small className="brand-pro">Pro</small></span>
           </div>
           <div className="drawer-header-actions">
             <DocsButton ariaLabel={t('menu.docs') || 'Documentation'} />
