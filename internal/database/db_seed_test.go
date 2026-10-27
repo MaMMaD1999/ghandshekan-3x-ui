@@ -7,7 +7,81 @@ import (
 	"testing"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/crypto"
 )
+
+func TestInitDBDoesNotSeedKnownAdministrator(t *testing.T) {
+	if err := InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	var users []model.User
+	if err := db.Find(&users).Error; err != nil {
+		t.Fatalf("query users: %v", err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("fresh CLI initialization seeded %d users before server credential generation", len(users))
+	}
+}
+
+func TestEnsureFirstUserCreatesOneWorkingCredential(t *testing.T) {
+	if err := InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	username, password, err := EnsureFirstUser()
+	if err != nil {
+		t.Fatalf("EnsureFirstUser: %v", err)
+	}
+	var stored model.User
+	if err := db.First(&stored).Error; err != nil {
+		t.Fatalf("read user: %v", err)
+	}
+	if stored.Username != username || username == "admin" || password == "" || password == "admin" || !crypto.CheckPasswordHash(stored.Password, password) {
+		t.Fatal("generated credential is absent, predictable, or does not authenticate against its stored hash")
+	}
+	againUser, againPass, err := EnsureFirstUser()
+	if err != nil || againUser != "" || againPass != "" {
+		t.Fatalf("second EnsureFirstUser created another credential or failed: %v", err)
+	}
+	var count int64
+	if err := db.Model(&model.User{}).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("users = %d (%v), want 1", count, err)
+	}
+}
+
+func TestEnsureFirstUserPreservesExistingLoginAcrossInitialization(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x-ui.db")
+	if err := InitDB(path); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	hash, err := crypto.HashPasswordAsBcrypt("chosen-before-upgrade")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	existing := model.User{Username: "existing-owner", Password: hash, LoginEpoch: 9}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("seed existing user: %v", err)
+	}
+	if err := CloseDB(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+	if err := InitDB(path); err != nil {
+		t.Fatalf("reopen DB: %v", err)
+	}
+	username, password, err := EnsureFirstUser()
+	if err != nil || username != "" || password != "" {
+		t.Fatalf("existing user caused credential generation: %v", err)
+	}
+	var stored model.User
+	if err := db.First(&stored, existing.Id).Error; err != nil {
+		t.Fatalf("read existing user: %v", err)
+	}
+	if stored != existing {
+		t.Fatal("existing user fields changed during DB reinitialization or first-user check")
+	}
+}
 
 func TestInitDB_GeneratesPerPanelSubscriptionPaths(t *testing.T) {
 	pathPattern := regexp.MustCompile(`^/[0-9a-z]{16}/$`)
