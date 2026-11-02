@@ -9,13 +9,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Record is intentionally not registered in the production auto-migration yet.
-// The feature is staged until its runtime/membership adapters are complete.
+// Tables are migrated, but enrollment is not enabled until the runtime and
+// membership adapters pass deployment acceptance tests.
 type Record struct {
 	Subscription string `gorm:"primaryKey"`
 	Revision     uint64
 	PolicyJSON   string
 	RowsJSON     string
+	FrozenFor    string `gorm:"not null;default:''"`
+	FreezeJSON   string `gorm:"not null;default:''"`
+	PausedFor    string `gorm:"not null;default:''"`
+	PausedEpoch  string `gorm:"not null;default:''"`
 }
 
 func (Record) TableName() string { return "quota_escrow_states" }
@@ -69,10 +73,17 @@ func (s *Store) Load(subscription string) (*Ledger, error) {
 // as an additional fence (including dialects without row-level FOR UPDATE).
 // No candidate leaves this transaction before successful durable commit.
 func (s *Store) mutate(subscription string, fn func(*Ledger) error) error {
+	return s.mutateMode(subscription, true, fn)
+}
+
+func (s *Store) mutateMode(subscription string, allowPaused bool, fn func(*Ledger) error) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		var record Record
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "subscription = ?", subscription).Error; err != nil {
 			return err
+		}
+		if record.FrozenFor != "" || (!allowPaused && record.PausedFor != "") {
+			return ErrFrozen
 		}
 		l, err := decodeRecord(record)
 		if err != nil {
@@ -107,7 +118,7 @@ func (s *Store) Transfer(subscription, owner string, key ed25519.PrivateKey, byt
 		return SignedRow{}, errors.New("transfer recipient required")
 	}
 	var committed SignedRow
-	err := s.mutate(subscription, func(l *Ledger) error {
+	err := s.mutateMode(subscription, false, func(l *Ledger) error {
 		r, err := l.Propose(owner, key, bytes, to, now)
 		if err != nil {
 			return err

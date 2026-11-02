@@ -19,6 +19,8 @@ import (
 type LocalDeps struct {
 	APIPort        func() int
 	SetNeedRestart func()
+	ClientAllowed  func(string) (bool, error)
+	FilterInbound  func(*model.Inbound) (*model.Inbound, error)
 }
 
 type Local struct {
@@ -49,6 +51,13 @@ func (l *Local) withAPI(fn func(api *xray.XrayAPI) error) error {
 }
 
 func (l *Local) AddInbound(_ context.Context, ib *model.Inbound) error {
+	if l.deps.FilterInbound != nil {
+		filtered, err := l.deps.FilterInbound(ib)
+		if err != nil {
+			return err
+		}
+		ib = filtered
+	}
 	if ib.Protocol == model.MTProto {
 		inst, ok := mtproto.InstanceFromInbound(ib)
 		if !ok {
@@ -133,6 +142,13 @@ func (l *Local) DelInbound(_ context.Context, ib *model.Inbound) error {
 }
 
 func (l *Local) UpdateInbound(ctx context.Context, oldIb, newIb *model.Inbound) error {
+	if l.deps.FilterInbound != nil {
+		filtered, err := l.deps.FilterInbound(newIb)
+		if err != nil {
+			return err
+		}
+		newIb = filtered
+	}
 	if oldIb.Protocol == model.MTProto || newIb.Protocol == model.MTProto {
 		return l.updateMtprotoInbound(ctx, oldIb, newIb)
 	}
@@ -273,6 +289,16 @@ func (l *Local) updateTuicInbound(ctx context.Context, oldIb, newIb *model.Inbou
 }
 
 func (l *Local) AddUser(_ context.Context, ib *model.Inbound, userMap map[string]any) error {
+	if l.deps.ClientAllowed != nil {
+		email, _ := userMap["email"].(string)
+		allowed, err := l.deps.ClientAllowed(email)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return nil
+		}
+	}
 	if ib.Protocol == model.MTProto || ib.Protocol == model.AmneziaWG || ib.Protocol == model.TUIC {
 		return nil
 	}

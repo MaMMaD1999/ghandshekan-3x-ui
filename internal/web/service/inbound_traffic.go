@@ -203,6 +203,9 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 		).Error; err != nil {
 			return fmt.Errorf("update traffic for %s: %w", ct.Email, err)
 		}
+		if err = recordMeshLocalUsage(tx, ct.Email, t.Up, t.Down); err != nil {
+			return fmt.Errorf("persist local accounting source: %w", err)
+		}
 	}
 
 	// adjustTraffics converts delayed-start rows (negative ExpiryTime → absolute

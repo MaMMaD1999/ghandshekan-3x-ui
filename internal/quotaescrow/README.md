@@ -1,6 +1,7 @@
 # Quota escrow — staged, not a live panel capability
 
-This package is not connected to the production traffic limiter or node API.
+This branch includes local meter and admission adapters, but the complete
+runtime limiter, authenticated enrollment and node API are not installed.
 Do not advertise autonomous quota enforcement based on the presence of these
 files, the panel version, or the existing custom-accounting capability.
 
@@ -97,3 +98,35 @@ Peer-cycle components:
   between the other two nodes, retries it, and reconnects the master without
   increasing the billed total. Expiry decisions still work while disconnected.
   This remains a component-level test; no production runtime limiter is mounted.
+
+Local accounting and lifecycle adapters added on 2026-11-03:
+
+- `mesh_local_usage` persists local billed deltas in the same transaction as
+  ordinary traffic. It excludes imported/global node counters and survives
+  subscription resets. Its generation never silently changes on enrollment.
+- `ActivateMeshMeters` commits explicit alias bindings, policy and local meter
+  baselines atomically. Re-enrollment or a conflicting alias rolls back; neither
+  operation can reset an existing ledger. It still requires an authenticated,
+  runtime-fenced caller; it is not exposed to browsers or peers.
+- `SettleMeshMeters` settles every local alias of a subscription transactionally.
+  Retry/disk-failure tests preserve usage exactly once. A caller must close
+  admission on settlement errors; the periodic runtime caller is still missing.
+- The cold Xray configuration and hot local AddUser/AddInbound paths filter
+  locally exhausted/frozen enrolled aliases. Unenrolled clients retain their
+  legacy behavior. These guards do NOT terminate already-open streams.
+- `BeginTransition` persists an admission barrier before draining. `Freeze`
+  seals final signed usage only after that barrier. Transfers stop while paused,
+  but final local meter settlement remains possible until sealing. Restart,
+  duplicate transition, missing-member, wrong-epoch and failed-commit tests pass.
+- `CommitTransition` requires every old member's signed final proof, preserves
+  actual consumption on renewal and clears it only on an explicit reset. An
+  acknowledged-commit retry cannot reset new usage or meter watermarks.
+- All five new tables participate in both normal schema migration and SQLite
+  to PostgreSQL migration. Runtime capability responses intentionally do not
+  advertise autonomous mesh enforcement.
+
+Deployment blockers remain: authenticated member/policy provisioning and TLS
+trust, safe live-session cutoff, supervised metering/gossip workers, distributed
+reset/renewal integration, checked-clock handling, and end-to-end partition
+acceptance tests with real traffic. Do not enroll live subscriptions or label
+this branch a completed mesh release until those checks pass.

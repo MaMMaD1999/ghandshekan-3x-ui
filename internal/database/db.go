@@ -22,6 +22,7 @@ import (
 
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/crypto"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/maskcompat"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/random"
@@ -83,6 +84,11 @@ func allModels() []any {
 		&model.InboundTrafficReportBaseline{},
 		&model.NodeClientIp{},
 		&model.ClientGlobalTraffic{},
+		&model.LocalUsage{},
+		&model.MeshBinding{},
+		&quotaescrow.Record{},
+		&quotaescrow.Meter{},
+		&quotaescrow.EpochArchive{},
 		&model.NodePendingReset{},
 		&model.OutboundSubscription{},
 		&model.SubBalancer{},

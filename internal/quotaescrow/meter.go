@@ -91,7 +91,14 @@ func (s *Store) ObserveMeter(subscription, owner, source string, key ed25519.Pri
 // Admission is local and does not depend on a successful master poll. An error
 // must fail closed at the runtime adapter, not grant unmetered access.
 func (s *Store) Admission(subscription, owner string, now int64) (int64, error) {
-	l, err := s.Load(subscription)
+	var record Record
+	if err := s.db.First(&record, "subscription = ?", subscription).Error; err != nil {
+		return 0, err
+	}
+	if record.FrozenFor != "" || record.PausedFor != "" {
+		return 0, ErrFrozen
+	}
+	l, err := decodeRecord(record)
 	if err != nil {
 		return 0, err
 	}

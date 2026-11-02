@@ -553,6 +553,8 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 	runtime.SetManager(runtime.NewManager(runtime.LocalDeps{
 		APIPort:        func() int { return s.xrayService.GetXrayAPIPort() },
 		SetNeedRestart: func() { s.xrayService.SetToNeedRestart() },
+		ClientAllowed:  service.MeshClientAllowed,
+		FilterInbound:  service.FilterMeshInbound,
 	}))
 	runtime.GetManager().SetNodeEgressResolver(&s.settingService)
 	// Supply the master client certificate for nodes in mtls mode. Issued lazily

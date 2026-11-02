@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"gorm.io/driver/postgres"
@@ -59,6 +60,11 @@ func migrationModels() []any {
 		&model.InboundTrafficReportBaseline{},
 		&model.NodeClientIp{},
 		&model.ClientGlobalTraffic{},
+		&model.LocalUsage{},
+		&model.MeshBinding{},
+		&quotaescrow.Record{},
+		&quotaescrow.Meter{},
+		&quotaescrow.EpochArchive{},
 		&model.NodePendingReset{},
 		&model.OutboundSubscription{},
 		&model.SubBalancer{},

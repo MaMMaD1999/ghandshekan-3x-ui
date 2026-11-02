@@ -10,10 +10,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgnet"
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/tuic"
@@ -199,6 +201,10 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	meshBlocked, err := MeshBlockedEmails(database.GetDB(), time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
 	for _, inbound := range inbounds {
 		if !inbound.Enable {
 			continue
@@ -239,6 +245,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		var wgPeers []any
 		for i := range dbClients {
 			c := dbClients[i]
+			if meshBlocked[c.Email] {
+				continue
+			}
 			if enable, exists := enableMap[c.Email]; exists && !enable {
 				logger.Infof("Remove Inbound User %s due to expiration or traffic limit", c.Email)
 				continue

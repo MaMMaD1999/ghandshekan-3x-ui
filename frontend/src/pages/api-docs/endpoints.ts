@@ -243,6 +243,12 @@ export const sections: readonly Section[] = [
           'Returns whether 2FA is enabled on the panel — used by the login page to decide whether to show the OTP field.',
         response: '{\n  "success": true,\n  "obj": false\n}',
       },
+      {
+        method: 'GET',
+        path: '/sponsors',
+        summary: 'Compatibility endpoint for cached clients. Returns an empty sponsor list; no advertising content is fetched or displayed.',
+        deprecated: true,
+      },
     ],
   },
 
@@ -252,6 +258,11 @@ export const sections: readonly Section[] = [
     description:
       'Manage inbound configurations and their clients. All endpoints live under /panel/api/inbounds and require a logged-in session or Bearer token. Link-generating endpoints honour forwarded headers only when the request comes from a configured trusted proxy.',
     endpoints: [
+      {
+        method: 'GET',
+        path: '/panel/api/inbounds/pronet/capabilities',
+        summary: 'Report custom billed/raw traffic support and current custom-core readiness. This does not advertise autonomous mesh quota enforcement.',
+      },
       {
         method: 'GET',
         path: '/panel/api/inbounds/list',
@@ -329,6 +340,13 @@ export const sections: readonly Section[] = [
           'Toggle only the enable flag without serialising the whole settings JSON. Recommended for UI switches on large inbounds.',
         params: [{ name: 'id', in: 'path', type: 'number', desc: 'Inbound ID.' }],
         body: '{\n  "enable": false\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/inbounds/:id/trafficCoefficient',
+        summary: 'Update the billed traffic coefficient for an owned inbound. An optional expectedCoefficient rejects stale concurrent edits with HTTP 409.',
+        params: [{ name: 'id', in: 'path', type: 'number', desc: 'Inbound ID.' }],
+        body: '{\n  "trafficCoefficient": 1,\n  "expectedCoefficient": 1\n}',
       },
       {
         method: 'POST',

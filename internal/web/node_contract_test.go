@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -215,6 +216,19 @@ func TestMasterNodeContract(t *testing.T) {
 						t.Fatalf("node subSortIndex = %d, want 7", ib.SubSortIndex)
 					}
 				}},
+				{"custom accounting capability reaches the node", []string{"HasProNetAccounting"}, func() error {
+					if master.HasProNetAccounting(ctx) {
+						return fmt.Errorf("core readiness advertised without a running core")
+					}
+					return nil
+				}, nil},
+				{"coefficient update reaches the core readiness guard", []string{"SetTrafficCoefficient"}, func() error {
+					err := master.SetTrafficCoefficient(ctx, masterInbound("updated", false), 1, nil)
+					if err == nil || !strings.Contains(err.Error(), "custom accounting core is not running") {
+						return fmt.Errorf("expected safe rejection without custom core, got %v", err)
+					}
+					return nil
+				}, nil},
 				{"AddClient attaches one client", []string{"AddClient"}, func() error {
 					return master.AddClient(ctx, masterInbound("updated", false), model.Client{
 						Email: "c3", ID: "0b6d5c2e-7c1a-4f4e-9d3b-000000000003", SubID: "s-c3", Enable: true,
