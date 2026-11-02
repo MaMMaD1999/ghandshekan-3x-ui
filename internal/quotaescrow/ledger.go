@@ -20,12 +20,15 @@ var ErrConflict = errors.New("conflicting owner sequence")
 // A new epoch is NOT an automatic right to reissue outstanding grants: old
 // members must first be fenced. A disconnected member's grant cannot be reclaimed.
 type Policy struct {
-	Subscription string            `json:"subscription"`
-	Epoch        string            `json:"epoch"`
-	Limit        int64             `json:"limit"`
-	ExpiresAt    int64             `json:"expiresAt"`
-	Grants       map[string]int64  `json:"grants"`
-	Keys         map[string][]byte `json:"keys"`
+	Subscription string `json:"subscription"`
+	Epoch        string `json:"epoch"`
+	Limit        int64  `json:"limit"`
+	// AlreadyBilled is the committed subscription usage at mesh activation.
+	// It is counted once globally, never copied into each member's Used row.
+	AlreadyBilled int64             `json:"alreadyBilled,omitempty"`
+	ExpiresAt     int64             `json:"expiresAt"`
+	Grants        map[string]int64  `json:"grants"`
+	Keys          map[string][]byte `json:"keys"`
 }
 
 // Row is a single-writer, monotonically increasing cumulative snapshot. Used
@@ -63,7 +66,7 @@ func add(a, b int64) (int64, error) {
 	return a + b, nil
 }
 func New(p Policy) (*Ledger, error) {
-	if p.Subscription == "" || p.Epoch == "" || p.Limit < 0 || p.ExpiresAt < 0 || len(p.Grants) == 0 || len(p.Keys) != len(p.Grants) {
+	if p.Subscription == "" || p.Epoch == "" || p.Limit < 0 || p.AlreadyBilled < 0 || p.ExpiresAt < 0 || len(p.Grants) == 0 || len(p.Keys) != len(p.Grants) {
 		return nil, errors.New("invalid policy")
 	}
 	var total int64
@@ -77,7 +80,8 @@ func New(p Policy) (*Ledger, error) {
 			return nil, err
 		}
 	}
-	if total > p.Limit {
+	remaining := p.Limit - min(p.Limit, p.AlreadyBilled)
+	if total > remaining {
 		return nil, errors.New("grants exceed subscription limit")
 	}
 	return &Ledger{policy: clone(p), rows: map[string]SignedRow{}}, nil
@@ -142,7 +146,7 @@ func (l *Ledger) Available(owner string, now int64) (int64, error) {
 	return remaining - debt, nil
 }
 func (l *Ledger) Billed() (int64, error) {
-	var total int64
+	total := l.policy.AlreadyBilled
 	for _, s := range l.rows {
 		var err error
 		total, err = add(total, s.Row.Used)
