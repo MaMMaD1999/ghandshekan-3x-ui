@@ -152,7 +152,9 @@ export function useXraySetting(): UseXraySettingResult {
   const [savedXraySetting, setSavedXraySetting] = useState('');
   const [savedOutboundTestUrl, setSavedOutboundTestUrl] = useState(DEFAULT_TEST_URL);
   const config = configQuery.data;
-  const inboundTags = useMemo(() => config?.inboundTags || [], [config]);
+  const inboundTags = useMemo(
+    () => [...new Set([...(config?.inboundTags || []), 'accounting-sync'])], [config],
+  );
   const clientReverseTags = useMemo(() => config?.clientReverseTags || [], [config]);
   const subscriptionOutbounds = useMemo<unknown[]>(
     () => config?.subscriptionOutbounds || [],

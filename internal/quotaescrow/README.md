@@ -46,3 +46,27 @@ concurrent transfers, and refusing an unfenced epoch overwrite. These are
 component tests, not an end-to-end network-disconnection acceptance test.
 
 Run `go test ./internal/quotaescrow`. SQLite tests additionally require CGO.
+
+Transport components added on 2026-11-03 (still not mounted in production):
+
+- `SyncTransport` retries direct connectivity on every cycle, then bounded peer
+  relays, then the explicitly supplied accounting egress. Configuring the
+  `accounting-sync` bridge does not make it the preferred transport.
+- `SignedExchange` binds the destination, subscription, epoch and random request
+  nonce. The destination signs a receipt only after durable merge. A relay cannot
+  substitute its own acknowledgement; a previous receipt cannot acknowledge a
+  new attempt. Repeated cumulative reports do not bill usage again.
+- `HTTPExchange` implements HTTPS delivery and one intermediary, using only
+  provisioned peer addresses, bounded bodies and no redirects. This supports the
+  Iran -> Austria -> Netherlands example; arbitrary multi-hop discovery is not
+  implemented. The production adapter must add peer provisioning, admission
+  limits, scheduling and TLS trust configuration before mounting the handler.
+- The reserved loopback SOCKS bridge is injected only for an explicit valid
+  routing rule. An accounting-only rejection rule follows administrator rules
+  so unmatched conditional rules cannot leak into the default outbound. Other
+  inbound rules retain their order. Exhausted reserved ports disable the bridge.
+
+TLS integration tests exercise relay delivery between independent SQLite stores,
+duplicate reports, new-request receipt binding, failed disk commits, redirected
+endpoints and oversized messages. These do not validate production traffic
+admission, migration of existing subscriptions, or independent quota enforcement.

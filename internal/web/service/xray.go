@@ -471,6 +471,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		injectNodeEgresses(xrayConfig, nodes)
 	}
 
+	injectAccountingEgress(xrayConfig)
 	return xrayConfig, nil
 }
 
