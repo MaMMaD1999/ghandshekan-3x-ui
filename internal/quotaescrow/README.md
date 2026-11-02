@@ -86,3 +86,14 @@ Activation/meter components added subsequently:
 - `Admission` reads local durable allowance and expiry without master access.
   This is a decision API, not an installed Xray traffic limiter. The production
   runtime adapter must enforce it and handle errors before this feature is live.
+
+Peer-cycle components:
+
+- `SyncSubscription` contacts all authenticated members with bounded concurrency,
+  so an offline master does not serialize exchanges between healthy nodes. It
+  reloads committed rows for each destination and never reallocates grants on
+  network failure. `RunSync` runs non-overlapping cycles with cancellable waits.
+- A three-store HTTPS test disconnects the master, exchanges actual usage
+  between the other two nodes, retries it, and reconnects the master without
+  increasing the billed total. Expiry decisions still work while disconnected.
+  This remains a component-level test; no production runtime limiter is mounted.
