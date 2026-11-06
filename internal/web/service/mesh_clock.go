@@ -35,6 +35,13 @@ func MeshBlockedEmailsNow(db *gorm.DB) (map[string]bool, error) {
 	if len(bindings) == 0 {
 		return map[string]bool{}, nil
 	}
+	if !meshCanAdmit() {
+		blocked := map[string]bool{}
+		for _, binding := range bindings {
+			blocked[binding.Email] = true
+		}
+		return blocked, nil
+	}
 	now, err := checkedMeshUnix(db)
 	if err != nil {
 		blocked := map[string]bool{}

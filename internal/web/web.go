@@ -127,6 +127,7 @@ type Server struct {
 	tgbotService   tgbot.Tgbot
 	discordService *discord.DiscordService
 	discordGateway *discord.GatewayClient
+	meshRuntime    *service.MeshRuntime
 
 	wsHub *websocket.Hub
 
@@ -318,11 +319,22 @@ const (
 // startTask schedules background jobs (Xray checks, traffic jobs, cron
 // jobs) which the panel relies on for periodic maintenance and monitoring.
 func (s *Server) startTask(restartXray bool, loc *time.Location) {
+	service.BeginMeshRuntime()
 	if restartXray {
 		err := s.xrayService.RestartXray(true)
 		if err != nil {
 			logger.Warning("start xray failed:", err)
 		}
+	}
+	var meshErr error
+	s.meshRuntime, meshErr = service.StartMeshRuntime(s.ctx, &s.xrayService)
+	if meshErr != nil {
+		logger.Error("start mesh runtime failed: ", meshErr)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if fenceErr := s.xrayService.SuspendMeshAdmission(ctx); fenceErr != nil {
+			_ = s.xrayService.StopXray()
+		}
+		cancel()
 	}
 	// Check whether xray is running every second
 	_, _ = s.cron.AddJob(cadenceXrayRunning, job.NewCheckXrayRunningJob())
@@ -767,6 +779,7 @@ func (s *Server) StopPanelOnly() error {
 }
 
 func (s *Server) stop(stopXray bool, stopTgBot bool) error {
+	meshErr := s.meshRuntime.Stop()
 	s.cancel()
 	var err1 error
 	var err2 error
@@ -815,7 +828,7 @@ func (s *Server) stop(stopXray bool, stopTgBot bool) error {
 	if s.listener != nil {
 		err1 = common.Combine(err1, s.listener.Close())
 	}
-	return common.Combine(err1, err2)
+	return common.Combine(common.Combine(err1, err2), meshErr)
 }
 
 // GetCtx returns the server's context for cancellation and deadline management.

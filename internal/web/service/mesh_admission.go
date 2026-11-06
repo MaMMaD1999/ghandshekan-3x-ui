@@ -85,6 +85,9 @@ func MeshClientAllowed(email string) (bool, error) {
 	if len(bindings) == 0 {
 		return true, nil
 	}
+	if !meshCanAdmit() {
+		return false, nil
+	}
 	now, err := checkedMeshUnix(db)
 	if err != nil {
 		return false, nil

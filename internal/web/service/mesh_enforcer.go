@@ -33,6 +33,18 @@ func (e *MeshFenceError) Unwrap() error { return e.Err }
 // ReconcileCurrent uses the durable checked clock. Even when the clock cannot be
 // trusted, settle actual traffic and fence enrolled aliases; do not renew time.
 func (e *MeshEnforcer) ReconcileCurrent(ctx context.Context) error {
+	if e.DB == nil {
+		return &MeshFenceError{Err: errors.New("mesh database is not configured")}
+	}
+	var count int64
+	if e.DB != nil {
+		if err := e.DB.Model(&model.MeshBinding{}).Count(&count).Error; err != nil {
+			return &MeshFenceError{Err: err}
+		}
+		if count == 0 {
+			return e.Reconcile(ctx, 0)
+		}
+	}
 	now, err := checkedMeshUnix(e.DB)
 	if err != nil {
 		return errors.Join(err, e.Reconcile(ctx, -1))

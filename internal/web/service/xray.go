@@ -1434,6 +1434,9 @@ func (s *XrayService) RestartXray(isForce bool) error {
 		logger.Warning("xray config may not start:", conflicts[0].String())
 	}
 
+	if err := fenceMeshColdConfig(xrayConfig); err != nil {
+		return err
+	}
 	process = xray.NewProcess(xrayConfig)
 	xrayState.replace(process)
 	s.xrayAPI.StatsLastValues = nil

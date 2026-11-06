@@ -215,3 +215,25 @@ bridge only as a separate client restricted to loopback ports 62780–62789.
 Tests verify direct HTTPS still works with an invalid general HTTPS proxy and
 reject unrelated proxy endpoints and disabled certificate verification. The
 exchange supervisor must request that client only in the third-path callback.
+
+Runtime integration verified on 2026-11-07 (release 3.10.2-ghandshekan.34):
+
+- Private identity configuration validates independent enrollment authority and
+  node keys, certificate identity, mutual TLS trust, and fixed peer endpoints.
+- Panel lifecycle now starts a bounded exchange listener and independent local
+  enforcement and exchange workers. Direct traffic is attempted first, peer
+  relay second, and the accounting-sync SOCKS route only as the third fallback.
+- Cold core configuration excludes enrolled aliases until the gate API confirms
+  the current local allowance. Shutdown fences enrolled sessions before workers
+  disappear; ordinary unenrolled clients retain their existing behavior.
+- Real panel/core acceptance passed three repetitions with an unreachable master:
+  a running download stops when its local allowance is exhausted, an unrelated
+  user's download survives, and the core instance remains unchanged. Receiving
+  a signed credit transfer restores admission without billing the transfer.
+- Service, web, job and ledger regression tests pass. The quota/expiry scheduled
+  cutoff test also passes against this static Linux build.
+
+This supersedes the earlier notes about pending runtime wiring, not the remaining
+rollout requirements. Live enrollment, subscription lifecycle orchestration,
+restore checkpoints and multi-node partition acceptance still require completion.
+The release does not automatically enroll existing subscriptions.
