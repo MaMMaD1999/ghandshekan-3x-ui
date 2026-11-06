@@ -85,8 +85,23 @@ func TestMeshEnforcerIsolatesSettlementFailuresAndRetries(t *testing.T) {
 func TestMeshEnforcerReportsUnconfirmedFence(t *testing.T) {
 	setupConflictDB(t)
 	sentinel := errors.New("core unavailable")
-	e := MeshEnforcer{DB: database.GetDB(), KeyForOwner: func(string) (ed25519.PrivateKey, error) { return nil, nil }, Fence: func(context.Context, []string) error { return sentinel }}
+	e := MeshEnforcer{DB: database.GetDB(), known: map[string]bool{"previously-admitted": true}, KeyForOwner: func(string) (ed25519.PrivateKey, error) { return nil, nil }, Fence: func(context.Context, []string) error { return sentinel }}
 	if err := e.Reconcile(context.Background(), 100); !errors.Is(err, sentinel) {
 		t.Fatal(err)
+	}
+}
+
+func TestMeshEnforcerDoesNotClearUnknownFenceOnStartup(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	e := MeshEnforcer{DB: db, Fence: func(context.Context, []string) error { t.Fatal("startup cleared an unknown core fence"); return nil }}
+	if err := e.Reconcile(context.Background(), 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrator().DropTable(&model.MeshBinding{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Reconcile(context.Background(), 100); err == nil {
+		t.Fatal("missing bindings did not fail closed")
 	}
 }

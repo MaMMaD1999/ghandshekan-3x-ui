@@ -63,6 +63,7 @@ func migrationModels() []any {
 		&model.LocalUsage{},
 		&model.MeshBinding{},
 		&quotaescrow.Record{},
+		&quotaescrow.ClockState{},
 		&quotaescrow.Meter{},
 		&quotaescrow.EpochArchive{},
 		&model.NodePendingReset{},

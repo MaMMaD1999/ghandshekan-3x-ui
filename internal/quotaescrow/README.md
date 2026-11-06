@@ -183,3 +183,9 @@ Deleted bindings never implicitly reopen an alias. Tests cover retry without
 double billing, exhausted allowance, expiry, missing keys, unreadable bindings
 and an unconfirmed core fence. This adapter still requires the authenticated
 enrollment, checked-clock and supervised runtime integration described above.
+
+The checked-clock component now persists a time floor, refuses a missing clock
+record during normal runtime, and rejects a backward clock on process restart.
+Its tests cover small clock corrections, restart rollback and failed disk writes.
+This is not a replacement for an external restore checkpoint, and is not yet
+wired into the production mesh supervisor.

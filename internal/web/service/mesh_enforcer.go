@@ -36,10 +36,18 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 	}
 	var bindings []model.MeshBinding
 	if err := e.DB.Find(&bindings).Error; err != nil {
+		if len(e.known) == 0 {
+			// Without a known admission set, replacing the core's fence with an
+			// empty list would reopen previously blocked sessions after restart.
+			return err
+		}
 		return errors.Join(err, e.apply(ctx, e.known))
 	}
 	for _, b := range bindings {
 		e.known[b.Email] = true
+	}
+	if len(e.known) == 0 {
+		return nil
 	}
 	failures, settleErr := SettleMeshMeters(e.DB, e.KeyForOwner)
 	blocked, decisionErr := MeshBlockedEmails(e.DB, now)
