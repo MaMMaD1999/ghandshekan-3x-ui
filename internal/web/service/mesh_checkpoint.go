@@ -79,6 +79,13 @@ func OpenMeshCheckpoint(source *gorm.DB, c *MeshConfig, initialize bool) (*MeshC
 		if err := source.Model(&quotaescrow.Record{}).Count(&count).Error; err != nil {
 			return nil, err
 		}
+		if source.Migrator().HasTable(&model.MeshControlState{}) {
+			var controlCount int64
+			if err := source.Model(&model.MeshControlState{}).Count(&controlCount).Error; err != nil {
+				return nil, err
+			}
+			count += controlCount
+		}
 		if count > 0 && !initialize {
 			return nil, errors.Join(ErrMeshRestore, errors.New("checkpoint missing for enrolled accounting"))
 		}
@@ -125,7 +132,7 @@ func OpenMeshCheckpoint(source *gorm.DB, c *MeshConfig, initialize bool) (*MeshC
 			return nil, errors.Join(ErrMeshRestore, errors.New("checkpoint identity unavailable or invalid"))
 		}
 	}
-	if err := cp.advanceLocked(source); err != nil {
+	if err := cp.advanceLocked(source, ""); err != nil {
 		return nil, err
 	}
 	failed = false
@@ -148,17 +155,51 @@ func (c *MeshCheckpoint) verify(entry meshCheckpointEntry) bool {
 func (c *MeshCheckpoint) Advance(source *gorm.DB) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.advanceLocked(source)
+	return c.advanceLocked(source, "")
 }
 
-func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
+// AdvanceSubscription protects an individual publication without scanning every
+// subscriber for every peer exchange. Startup, control changes and enforcement
+// still run the complete checkpoint including all membership barriers.
+func (c *MeshCheckpoint) AdvanceSubscription(source *gorm.DB, subscription string) error {
+	if subscription == "" {
+		return errors.New("checkpoint scope required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.advanceLocked(source, subscription)
+}
+
+func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 	states := map[string]meshCheckpointState{}
+	controls := map[string]model.MeshControlState{}
 	archives := map[[2]string]quotaescrow.EpochArchive{}
 	var clock quotaescrow.ClockState
 	err := source.Transaction(func(tx *gorm.DB) error {
+		if scope == "" && tx.Migrator().HasTable(&model.MeshControlState{}) {
+			var pending []model.MeshControlState
+			if err := tx.Find(&pending).Error; err != nil {
+				return err
+			}
+			for _, state := range pending {
+				if err := c.validateControlCheckpoint(state); err != nil {
+					return err
+				}
+				controls[state.ID] = state
+			}
+		}
 		var records []quotaescrow.Record
-		if err := tx.Find(&records).Error; err != nil {
+		scoped := func(query *gorm.DB) *gorm.DB {
+			if scope != "" {
+				return query.Where("subscription = ?", scope)
+			}
+			return query
+		}
+		if err := scoped(tx).Find(&records).Error; err != nil {
 			return err
+		}
+		if scope != "" && len(records) != 1 {
+			return errors.New("scoped checkpoint policy missing")
 		}
 		for _, record := range records {
 			if err := quotaescrow.ValidateCheckpointAdvance(record, record, nil); err != nil {
@@ -167,7 +208,7 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 			states[record.Subscription] = meshCheckpointState{Record: record, Local: map[string]model.LocalUsage{}, Meters: map[string]quotaescrow.Meter{}}
 		}
 		var bindings []model.MeshBinding
-		if err := tx.Order("email").Find(&bindings).Error; err != nil {
+		if err := scoped(tx).Order("email").Find(&bindings).Error; err != nil {
 			return err
 		}
 		for _, binding := range bindings {
@@ -179,7 +220,11 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 			states[binding.Subscription] = state
 		}
 		var local []model.LocalUsage
-		if err := tx.Find(&local).Error; err != nil {
+		localQuery := tx.Model(&model.LocalUsage{})
+		if scope != "" {
+			localQuery = localQuery.Where("email IN (?)", tx.Model(&model.MeshBinding{}).Select("email").Where("subscription = ?", scope))
+		}
+		if err := localQuery.Find(&local).Error; err != nil {
 			return err
 		}
 		byEmail := map[string]model.LocalUsage{}
@@ -187,7 +232,7 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 			byEmail[counter.Email] = counter
 		}
 		var meters []quotaescrow.Meter
-		if err := tx.Where("owner = ?", c.owner).Find(&meters).Error; err != nil {
+		if err := scoped(tx).Where("owner = ?", c.owner).Find(&meters).Error; err != nil {
 			return err
 		}
 		byMeter := map[[2]string]quotaescrow.Meter{}
@@ -219,7 +264,7 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 			}
 			states[subscription] = state
 		}
-		if len(states) > 0 {
+		if len(states) > 0 || len(controls) > 0 {
 			if err := tx.First(&clock, "id = ?", "local").Error; err != nil {
 				return err
 			}
@@ -228,7 +273,7 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 			}
 		}
 		var rows []quotaescrow.EpochArchive
-		if err := tx.Find(&rows).Error; err != nil {
+		if err := scoped(tx).Find(&rows).Error; err != nil {
 			return err
 		}
 		for _, row := range rows {
@@ -241,10 +286,15 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 	}
 	err = c.db.Transaction(func(tx *gorm.DB) error {
 		var floors []meshCheckpointEntry
-		if err := tx.Where("id <> ?", "identity").Find(&floors).Error; err != nil {
+		floorQuery := tx.Where("id <> ?", "identity")
+		if scope != "" {
+			floorQuery = tx.Where("id IN ?", []string{"clock", "sub:" + scope})
+		}
+		if err := floorQuery.Find(&floors).Error; err != nil {
 			return err
 		}
 		previous := map[string][]byte{}
+		previousControls := map[string][]byte{}
 		for _, floor := range floors {
 			if !c.verify(floor) {
 				return errors.New("checkpoint signature invalid")
@@ -257,6 +307,19 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 				if clock.LastUnix < prior.LastUnix {
 					return errors.New("clock precedes checkpoint")
 				}
+				continue
+			}
+			if strings.HasPrefix(floor.ID, "control:") {
+				id := strings.TrimPrefix(floor.ID, "control:")
+				var old model.MeshControlState
+				if err := json.Unmarshal(floor.Body, &old); err != nil {
+					return err
+				}
+				current, ok := controls[id]
+				if !ok || old.ID != id || current.PlanHash != old.PlanHash || current.PlanJSON != old.PlanJSON || current.Subscription != old.Subscription || current.Stage < old.Stage || (old.Stage >= 1 && current.ReceiptJSON != old.ReceiptJSON) || (old.Stage == 2 && current.CommitHash != old.CommitHash) {
+					return errors.New("control barrier precedes checkpoint")
+				}
+				previousControls[id] = floor.Body
 				continue
 			}
 			if !strings.HasPrefix(floor.ID, "sub:") {
@@ -317,6 +380,19 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 				return err
 			}
 		}
+		for id, state := range controls {
+			body, err := json.Marshal(state)
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(previousControls[id], body) {
+				continue
+			}
+			entry := c.signed("control:"+id, body)
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&entry).Error; err != nil {
+				return err
+			}
+		}
 		if clock.LastUnix > 0 {
 			body, err := json.Marshal(clock)
 			if err != nil {
@@ -331,6 +407,35 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB) error {
 	})
 	if err != nil {
 		return errors.Join(ErrMeshRestore, err)
+	}
+	return nil
+}
+
+func (c *MeshCheckpoint) validateControlCheckpoint(state model.MeshControlState) error {
+	var plan quotaescrow.ControlPlan
+	if err := json.Unmarshal([]byte(state.PlanJSON), &plan); err != nil {
+		return err
+	}
+	if err := plan.Validate(); err != nil {
+		return err
+	}
+	if state.ID != plan.ID || state.Subscription != plan.Subscription || state.PlanHash != quotaescrow.ControlPlanHash(plan) || state.Stage < 0 || state.Stage > 2 || len(plan.Claims[c.owner]) == 0 {
+		return errors.New("invalid control checkpoint")
+	}
+	var receipt quotaescrow.ControlReceipt
+	if err := json.Unmarshal([]byte(state.ReceiptJSON), &receipt); err != nil {
+		return err
+	}
+	if receipt.Owner != c.owner {
+		return errors.New("foreign control checkpoint")
+	}
+	if state.Stage > 0 {
+		if err := quotaescrow.VerifyControlReceipt(receipt, plan, c.key.Public().(ed25519.PublicKey)); err != nil {
+			return err
+		}
+	}
+	if state.Stage == 2 && len(state.CommitHash) != 64 {
+		return errors.New("missing committed policy digest")
 	}
 	return nil
 }

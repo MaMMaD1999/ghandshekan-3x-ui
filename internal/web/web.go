@@ -319,6 +319,7 @@ const (
 // startTask schedules background jobs (Xray checks, traffic jobs, cron
 // jobs) which the panel relies on for periodic maintenance and monitoring.
 func (s *Server) startTask(restartXray bool, loc *time.Location) {
+	trafficJob := job.NewXrayTrafficJob()
 	service.BeginMeshRuntime()
 	if restartXray {
 		err := s.xrayService.RestartXray(true)
@@ -327,7 +328,7 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 		}
 	}
 	var meshErr error
-	s.meshRuntime, meshErr = service.StartMeshRuntime(s.ctx, &s.xrayService)
+	s.meshRuntime, meshErr = service.StartMeshRuntime(s.ctx, &s.xrayService, trafficJob.FlushForMesh)
 	if meshErr != nil {
 		logger.Error("start mesh runtime failed: ", meshErr)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -346,7 +347,7 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 
 	go func() {
 		time.Sleep(time.Second * 5)
-		_, _ = s.cron.AddJob(cadenceXrayTraffic, job.NewXrayTrafficJob())
+		_, _ = s.cron.AddJob(cadenceXrayTraffic, trafficJob)
 	}()
 
 	// Reconcile mtproto (mtg) sidecars and scrape their traffic

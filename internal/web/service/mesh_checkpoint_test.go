@@ -70,6 +70,30 @@ func TestMeshCheckpointDetectsRestoreAndKeepsIdentityNamespace(t *testing.T) {
 	}
 }
 
+func TestMeshScopedCheckpointRejectsRollbackBeforePublication(t *testing.T) {
+	db, c, cp, p := checkpointFixture(t)
+	var before quotaescrow.Record
+	if err := db.First(&before, "subscription = ?", p.Subscription).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Transaction(func(tx *gorm.DB) error { return recordMeshLocalUsage(tx, "phone", 20, 30) }); err != nil {
+		t.Fatal(err)
+	}
+	failures, err := SettleMeshMeters(db, func(string) (ed25519.PrivateKey, error) { return c.PrivateKey, nil })
+	if err != nil || len(failures) > 0 {
+		t.Fatal(failures, err)
+	}
+	if err := cp.AdvanceSubscription(db, p.Subscription); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Save(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.AdvanceSubscription(db, p.Subscription); !errors.Is(err, ErrMeshRestore) {
+		t.Fatal("scoped publication accepted rollback", err)
+	}
+}
+
 func TestMeshCheckpointRejectsMissingBindingMeterClockAndTampering(t *testing.T) {
 	for _, kind := range []string{"binding", "meter", "clock", "signature", "higher-revision", "watermark"} {
 		t.Run(kind, func(t *testing.T) {

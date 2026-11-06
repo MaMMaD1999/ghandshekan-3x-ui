@@ -146,6 +146,25 @@ func testMeshGateLiveTraffic(t *testing.T, protocol string, mux bool) {
 	if err = api.ReconcileConfigGates(ctx, []string{"phone", "other"}, []string{"other"}); err != nil {
 		t.Fatal(err)
 	}
+	drain, releaseDrain := context.WithTimeout(ctx, 3*time.Second)
+	if err = api.WaitUserSessionsFor(drain, "config", []string{"phone"}); err != nil {
+		releaseDrain()
+		t.Fatal("fenced protocol did not drain", err)
+	}
+	releaseDrain()
+	if _, _, err := api.GetTraffic(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	_, settled, err := api.GetTraffic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, traffic := range settled {
+		if traffic.Email == "phone" && traffic.Up+traffic.Down != 0 {
+			t.Fatal("counter changed after drain", traffic)
+		}
+	}
 	done := make(chan struct{})
 	go func() { _, _ = io.Copy(io.Discard, response.Body); close(done) }()
 	select {

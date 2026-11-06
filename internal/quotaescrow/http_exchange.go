@@ -26,7 +26,18 @@ type HTTPExchange struct {
 	Client       *http.Client
 	// Checkpoint validates restores and durably records every locally published
 	// transfer/receipt before it can authorize spending on another member.
-	Checkpoint func() error
+	Checkpoint       func() error
+	ScopedCheckpoint func(string) error
+}
+
+func (h HTTPExchange) checkpoint(subscription string) error {
+	if h.ScopedCheckpoint != nil {
+		return h.ScopedCheckpoint(subscription)
+	}
+	if h.Checkpoint != nil {
+		return h.Checkpoint()
+	}
+	return nil
 }
 
 func decodeExchange(reader io.Reader) (SignedExchange, error) {
@@ -96,10 +107,8 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if h.Store == nil {
 		return errors.New("missing accounting store")
 	}
-	if h.Checkpoint != nil {
-		if err := h.Checkpoint(); err != nil {
-			return err
-		}
+	if err := h.checkpoint(h.Subscription); err != nil {
+		return err
 	}
 	l, err := h.Store.Load(h.Subscription)
 	if err != nil {
@@ -109,10 +118,8 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if err != nil {
 		return err
 	}
-	if h.Checkpoint != nil {
-		if err := h.Checkpoint(); err != nil {
-			return err
-		}
+	if err := h.checkpoint(h.Subscription); err != nil {
+		return err
 	}
 	receipt, err := h.post(ctx, via, request, false)
 	if err != nil {
@@ -121,10 +128,7 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if err := h.Store.AcceptReceipt(request, receipt); err != nil {
 		return err
 	}
-	if h.Checkpoint != nil {
-		return h.Checkpoint()
-	}
-	return nil
+	return h.checkpoint(h.Subscription)
 }
 
 // Handler supports one authenticated intermediary. This is deliberately bounded:
@@ -141,12 +145,6 @@ func (h HTTPExchange) Handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		if h.Checkpoint != nil {
-			if err := h.Checkpoint(); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-		}
 		request, err := decodeExchange(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -155,6 +153,10 @@ func (h HTTPExchange) Handler() http.Handler {
 		l, err := h.Store.Load(request.Message.Subscription)
 		if err != nil || verifyExchange(l.policy, request) != nil || request.Message.Kind != "request" {
 			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if err := h.checkpoint(request.Message.Subscription); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		var receipt SignedExchange
@@ -178,11 +180,9 @@ func (h HTTPExchange) Handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		if h.Checkpoint != nil {
-			if err := h.Checkpoint(); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
+		if err := h.checkpoint(request.Message.Subscription); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(receipt)

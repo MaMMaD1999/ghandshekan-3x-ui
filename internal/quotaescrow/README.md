@@ -260,3 +260,32 @@ Restore checkpoint integration tested on 2026-11-07 (not yet enabled in producti
 
 Secure live enrollment/lifecycle orchestration and multi-node rollout acceptance
 remain required before advertising the mesh capability or enrolling subscribers.
+
+Private control adapter verified on 2026-11-07 (not a production activation):
+
+- A separate authority signs immutable two-phase operation plans; mutual TLS
+  alone or a member's usage key cannot enroll/reset a subscriber. Local claims
+  bind the actual credentials and inbound associations to a fingerprint.
+- A durable admission barrier precedes socket cutoff. The custom core's new
+  drain acknowledgement waits for tracked protocol/dispatch/Mux tasks, then
+  the existing scheduled collector flushes its own delta baseline.
+- Prepared receipts are node-signed and repeatable. Every previous member's
+  final proof is required for renewal/reset; failed or missing proof leaves
+  the old rights fenced. Retries do not mint credit or bill transfers.
+- Epoch, local client limits, reset counters/cards and operation completion
+  commit atomically. Renewal retains usage/cards; reset preserves lifetime
+  metering while beginning a new reporting cycle. Checkpoints also retain
+  incomplete control barriers and detect restoration before enrollment.
+- Per-subscription checkpoints protect peer publications without scanning all
+  subscribers for each message; full checks still run at startup/enforcement.
+- Tests passed: wrong authority/alias, failed drain, late bytes, operation
+  retry, two-member missing-proof recovery, reset versus renewal cards,
+  checkpoint rollback, service/job/web/ledger regression and actual panel/core
+  HTTP control while downloading. The unrelated download survives. Core race
+  tests passed after fixing an unrelated unsynchronized counter in a test.
+
+Still required before live enrollment: master-side durable orchestration,
+authoritative historical-usage cutover, all UI/API/bulk/scheduled lifecycle
+hooks, protection against stale legacy node snapshots during cutover, shared
+application-alias policies, provisioning and network-partition acceptance across
+real members. The mounted private adapter is not a claim that these are done.

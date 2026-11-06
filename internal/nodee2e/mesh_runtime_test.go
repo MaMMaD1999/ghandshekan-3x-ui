@@ -28,7 +28,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func installTestMeshIdentity(t *testing.T, p *panel, owner string, key ed25519.PrivateKey) {
+func installTestMeshIdentity(t *testing.T, p *panel, owner string, key ed25519.PrivateKey) (ed25519.PrivateKey, service.MeshConfig) {
 	t.Helper()
 	dir := filepath.Join(p.dir, "db", "mesh")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -49,13 +49,14 @@ func installTestMeshIdentity(t *testing.T, p *panel, owner string, key ed25519.P
 			t.Fatal(err)
 		}
 	}
-	authority, _, _ := ed25519.GenerateKey(rand.Reader)
+	authority, authorityPrivate, _ := ed25519.GenerateKey(rand.Reader)
 	address := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	c := service.MeshConfig{Owner: owner, PrivateKey: key, Authority: authority, Listen: address, CertFile: filepath.Join(dir, "cert.pem"), KeyFile: filepath.Join(dir, "key.pem"), CAFile: filepath.Join(dir, "ca.pem"), StateDir: filepath.Join(dir, "state"), Peers: map[string]string{owner: "https://" + address + "/exchange", "offline-master": fmt.Sprintf("https://127.0.0.1:%d/exchange", freePort(t))}}
 	b, _ := json.Marshal(c)
 	if err := os.WriteFile(filepath.Join(dir, "identity.json"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
+	return authorityPrivate, c
 }
 
 // The peer endpoint is unreachable throughout. This uses the installed panel

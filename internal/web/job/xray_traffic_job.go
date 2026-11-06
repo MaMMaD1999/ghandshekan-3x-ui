@@ -1,7 +1,10 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -15,6 +18,7 @@ import (
 
 // XrayTrafficJob collects and processes traffic statistics from Xray, updating the database and optionally informing external APIs.
 type XrayTrafficJob struct {
+	mu              sync.Mutex
 	settingService  service.SettingService
 	xrayService     service.XrayService
 	inboundService  service.InboundService
@@ -72,19 +76,36 @@ func NewXrayTrafficJob() *XrayTrafficJob {
 // real-time updates over WebSocket using compact delta payloads — no REST
 // fallback, scales to 10k–20k+ clients per inbound.
 func (j *XrayTrafficJob) Run() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	_ = j.collect(false)
+}
+
+// FlushForMesh uses this scheduled job's own delta baseline. A fresh collector
+// here would count the core's lifetime traffic again and corrupt billing.
+func (j *XrayTrafficJob) FlushForMesh(ctx context.Context) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return j.collect(true)
+}
+
+func (j *XrayTrafficJob) collect(flushOnly bool) error {
 	if !j.xrayService.IsXrayRunning() {
-		return
+		return errors.New("traffic core is unavailable")
 	}
 	baseline := j.xrayService.TrafficBaseline()
 	traffics, clientTraffics, err := j.xrayService.GetXrayTraffic()
 	if err != nil {
-		return
+		return err
 	}
 	needRestart0, clientsDisabled, err := j.inboundService.AddTraffic(traffics, clientTraffics)
 	if err != nil {
 		logger.Warning("add inbound traffic failed:", err)
 		j.xrayService.RestoreTrafficBaseline(baseline)
-		return
+		return err
 	}
 
 	// Detail rows are not a second contribution to websocket/external totals.
@@ -108,6 +129,12 @@ func (j *XrayTrafficJob) Run() {
 			j.xrayService.SetToNeedRestart()
 		}
 		websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
+	}
+	if flushOnly {
+		if needRestart0 || needRestart1 {
+			j.xrayService.SetToNeedRestart()
+		}
+		return nil
 	}
 	if ExternalTrafficInformEnable, err := j.settingService.GetExternalTrafficInformEnable(); ExternalTrafficInformEnable {
 		j.informTrafficToExternalAPI(traffics, clientTraffics)
@@ -158,7 +185,7 @@ func (j *XrayTrafficJob) Run() {
 	j.inboundService.RefreshLocalOnlineClients(activeEmails, activeInboundTags)
 
 	if !websocket.HasClients() {
-		return
+		return nil
 	}
 
 	// Small installs broadcast the full snapshot (see GetAllClientTraffics for
@@ -231,6 +258,7 @@ func (j *XrayTrafficJob) Run() {
 	} else if err != nil {
 		logger.Warning("get all outbounds for websocket failed:", err)
 	}
+	return nil
 }
 
 func (j *XrayTrafficJob) informTrafficToExternalAPI(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) {

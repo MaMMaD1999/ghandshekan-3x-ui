@@ -20,6 +20,36 @@ func (x *XrayAPI) ReconcileUserGates(ctx context.Context, blocked []string) erro
 	return x.updateUserGates(ctx, "mesh", func([]string) []string { return blocked })
 }
 
+// WaitUserSessionsFor confirms the handler/task drain separately from installing
+// a fence. Freeze/reset adapters must flush their existing meter collector only
+// after this RPC succeeds. Old cores return Unimplemented and cannot enroll.
+func (x *XrayAPI) WaitUserSessionsFor(ctx context.Context, scope string, emails []string) error {
+	if x.grpcClient == nil || (scope != "mesh" && scope != "config") || len(emails) == 0 {
+		return errors.New("invalid drain request")
+	}
+	state := new(meshgate.State)
+	if err := x.grpcClient.Invoke(ctx, "/xray.app.stats.command.StatsService/GetUserGates", &meshgate.GetRequest{Scope: scope}, state); err != nil {
+		return err
+	}
+	if state.Instance == "" || state.Scope != scope {
+		return errors.New("missing drain instance")
+	}
+	req := &meshgate.ReplaceRequest{Instance: state.Instance, Scope: scope, BlockedEmails: slices.Clone(emails)}
+	ack := new(meshgate.State)
+	if err := x.grpcClient.Invoke(ctx, "/xray.app.stats.command.StatsService/WaitUserSessions", req, ack); err != nil {
+		return err
+	}
+	if ack.Instance != state.Instance || ack.Scope != scope {
+		return errors.New("core changed during drain")
+	}
+	for _, email := range emails {
+		if !slices.Contains(ack.BlockedEmails, email) {
+			return errors.New("drain fence disappeared")
+		}
+	}
+	return nil
+}
+
 // ReconcileConfigGates closes removed users, while preserving independent mesh
 // gates and not interrupting a credential edit that retains the same email.
 func (x *XrayAPI) ReconcileConfigGates(ctx context.Context, previous, active []string) error {

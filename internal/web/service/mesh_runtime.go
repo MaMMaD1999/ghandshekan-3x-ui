@@ -29,6 +29,7 @@ type MeshRuntime struct {
 	xray       *XrayService
 	enforcer   *MeshEnforcer
 	checkpoint *MeshCheckpoint
+	flush      func(context.Context) error
 	once       sync.Once
 }
 
@@ -42,7 +43,7 @@ func MeshConfigPath() string {
 // StartMeshRuntime is called after the core start. Cold admission has already
 // excluded managed aliases; a successful local fence acknowledgement admits
 // only aliases whose committed allowance and expiry remain valid.
-func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, error) {
+func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...func(context.Context) error) (*MeshRuntime, error) {
 	c, trust, err := LoadMeshConfig(MeshConfigPath())
 	if errors.Is(err, os.ErrNotExist) {
 		var n int64
@@ -50,7 +51,13 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 			return nil, e
 		}
 		if n == 0 {
-			return nil, nil
+			pending, e := meshPendingAliases(database.GetDB())
+			if e != nil {
+				return nil, e
+			}
+			if len(pending) == 0 {
+				return nil, nil
+			}
 		}
 		return nil, errors.New("enrolled clients have no installed mesh identity; admission remains closed")
 	}
@@ -87,6 +94,9 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 	}
 	ctx, cancel := context.WithCancel(parent)
 	r := &MeshRuntime{cancel: cancel, done: make(chan struct{}), client: direct, xray: core, checkpoint: checkpoint}
+	if len(collectors) == 1 {
+		r.flush = collectors[0]
+	}
 	worker := &MeshExchangeWorker{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Peers: c.Peers, Trust: trust, Direct: direct, AccountingProxy: settings.AccountingSyncProxyURL}
 	check := func() error {
 		if err := checkpoint.Advance(database.GetDB()); err != nil {
@@ -96,6 +106,13 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 		return nil
 	}
 	worker.Checkpoint = check
+	worker.ScopedCheckpoint = func(subscription string) error {
+		if err := checkpoint.AdvanceSubscription(database.GetDB(), subscription); err != nil {
+			meshRestoreFault.Store(true)
+			return err
+		}
+		return nil
+	}
 	r.enforcer = &MeshEnforcer{DB: database.GetDB(), Fence: core.FenceMeshRuntime, KeyForOwner: func(owner string) (ed25519.PrivateKey, error) {
 		if owner != c.Owner {
 			return nil, errors.New("foreign local meter owner")
@@ -107,8 +124,9 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 	// login, bearer credential or unrestricted proxy endpoint is mounted here.
 	capacity := make(chan struct{}, 16)
 	handler := worker.Handler()
+	control := (&MeshControl{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Authority: ed25519.PublicKey(c.Authority), Enforcer: r.enforcer, Drain: core.DrainMeshSessions, Flush: r.flush, Checkpoint: check}).Handler()
 	r.server = &http.Server{ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/exchange" {
+		if req.URL.Path != "/exchange" && req.URL.Path != "/control" {
 			http.NotFound(w, req)
 			return
 		}
@@ -119,7 +137,11 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 			http.Error(w, "busy", http.StatusServiceUnavailable)
 			return
 		}
-		handler.ServeHTTP(w, req)
+		if req.URL.Path == "/control" {
+			control.ServeHTTP(w, req)
+		} else {
+			handler.ServeHTTP(w, req)
+		}
 	})}
 	emergency := func(cause error) error {
 		meshAdmissionReady.Store(false)

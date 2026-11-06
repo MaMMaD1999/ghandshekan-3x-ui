@@ -86,6 +86,7 @@ func allModels() []any {
 		&model.ClientGlobalTraffic{},
 		&model.LocalUsage{},
 		&model.MeshBinding{},
+		&model.MeshControlState{},
 		&quotaescrow.Record{},
 		&quotaescrow.ClockState{},
 		&quotaescrow.Meter{},

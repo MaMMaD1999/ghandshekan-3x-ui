@@ -126,9 +126,18 @@ func fenceMeshColdConfig(cfg *xray.Config) error {
 		return err
 	}
 	if len(bindings) == 0 {
-		return nil
+		pending, err := meshPendingAliases(database.GetDB())
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			return nil
+		}
 	}
-	blocked := map[string]bool{}
+	blocked, err := meshPendingAliases(database.GetDB())
+	if err != nil {
+		return err
+	}
 	for _, b := range bindings {
 		blocked[b.Email] = true
 	}
@@ -167,12 +176,22 @@ func fenceMeshColdConfig(cfg *xray.Config) error {
 // It must run before stopping the accounting workers, including panel-only
 // restarts which deliberately keep the core process alive.
 func (s *XrayService) SuspendMeshAdmission(ctx context.Context) error {
+	if meshRestoreFault.Load() {
+		return ErrMeshRestore
+	}
 	lock.Lock()
 	defer lock.Unlock()
 	meshAdmissionReady.Store(false)
 	var emails []string
 	if err := database.GetDB().Model(&model.MeshBinding{}).Pluck("email", &emails).Error; err != nil {
 		return err
+	}
+	pending, err := meshPendingAliases(database.GetDB())
+	if err != nil {
+		return err
+	}
+	for email := range pending {
+		emails = append(emails, email)
 	}
 	if len(emails) == 0 {
 		return nil
@@ -187,4 +206,22 @@ func (s *XrayService) SuspendMeshAdmission(ctx context.Context) error {
 	}
 	defer api.Close()
 	return api.ReconcileUserGates(ctx, emails)
+}
+
+// DrainMeshSessions holds the core lifecycle lock until all protocol handlers
+// and their tracked tasks have ended. A missing/dead core is not an accounting
+// acknowledgement; the caller retains its durable barrier for recovery.
+func (s *XrayService) DrainMeshSessions(ctx context.Context, emails []string) error {
+	lock.Lock()
+	defer lock.Unlock()
+	process := currentXrayProcess()
+	if process == nil || !process.IsRunning() {
+		return errors.New("core unavailable during mesh drain")
+	}
+	api := xray.XrayAPI{}
+	if err := api.Init(process.GetAPIPort()); err != nil {
+		return err
+	}
+	defer api.Close()
+	return api.WaitUserSessionsFor(ctx, "mesh", emails)
 }

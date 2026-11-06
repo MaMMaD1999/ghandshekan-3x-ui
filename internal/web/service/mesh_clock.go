@@ -28,15 +28,19 @@ func checkedMeshUnix(db *gorm.DB) (int64, error) {
 // Legacy installations do not need a mesh clock and incur no clock writes.
 // Enrolled clients must have the floor initialized by authenticated enrollment.
 func MeshBlockedEmailsNow(db *gorm.DB) (map[string]bool, error) {
+	pending, pendingErr := meshPendingAliases(db)
+	if pendingErr != nil {
+		return nil, pendingErr
+	}
 	var bindings []model.MeshBinding
 	if err := db.Find(&bindings).Error; err != nil {
 		return nil, err
 	}
 	if len(bindings) == 0 {
-		return map[string]bool{}, nil
+		return pending, nil
 	}
 	if !meshCanAdmit() {
-		blocked := map[string]bool{}
+		blocked := pending
 		for _, binding := range bindings {
 			blocked[binding.Email] = true
 		}
@@ -44,7 +48,7 @@ func MeshBlockedEmailsNow(db *gorm.DB) (map[string]bool, error) {
 	}
 	now, err := checkedMeshUnix(db)
 	if err != nil {
-		blocked := map[string]bool{}
+		blocked := pending
 		for _, binding := range bindings {
 			blocked[binding.Email] = true
 		}

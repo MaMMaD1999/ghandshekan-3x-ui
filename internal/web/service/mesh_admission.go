@@ -56,7 +56,10 @@ func MeshBlockedEmails(db *gorm.DB, now int64) (map[string]bool, error) {
 	if err := db.Find(&bindings).Error; err != nil {
 		return nil, err
 	}
-	blocked := map[string]bool{}
+	blocked, err := meshPendingAliases(db)
+	if err != nil {
+		return nil, err
+	}
 	decisions := map[[2]string]bool{}
 	store := quotaescrow.NewStore(db)
 	for _, b := range bindings {
@@ -78,6 +81,13 @@ func MeshBlockedEmails(db *gorm.DB, now int64) (map[string]bool, error) {
 // old enabled client cannot bypass a locally exhausted or fenced mesh epoch.
 func MeshClientAllowed(email string) (bool, error) {
 	db := database.GetDB()
+	pending, err := meshPendingAliases(db)
+	if err != nil {
+		return false, err
+	}
+	if pending[email] {
+		return false, nil
+	}
 	var bindings []model.MeshBinding
 	if err := db.Where("email = ?", email).Find(&bindings).Error; err != nil {
 		return false, err

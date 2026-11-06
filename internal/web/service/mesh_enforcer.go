@@ -81,6 +81,13 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 	for _, b := range bindings {
 		e.known[b.Email] = true
 	}
+	pending, pendingErr := meshPendingAliases(e.DB)
+	if pendingErr != nil {
+		return &MeshFenceError{Err: pendingErr}
+	}
+	for email := range pending {
+		e.known[email] = true
+	}
 	if len(e.known) == 0 {
 		return nil
 	}
@@ -102,6 +109,9 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 		}
 		// A binding disappearing does not itself authorize reopening its alias.
 		present := map[string]bool{}
+		for email := range pending {
+			present[email] = true
+		}
 		for _, b := range bindings {
 			present[b.Email] = true
 		}
