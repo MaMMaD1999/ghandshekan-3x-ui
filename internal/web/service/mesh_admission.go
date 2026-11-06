@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -13,7 +12,7 @@ import (
 // FilterMeshInbound copies the runtime view only. Stored enable flags and
 // master-owned settings are not modified by a temporary local quota gate.
 func FilterMeshInbound(inbound *model.Inbound) (*model.Inbound, error) {
-	blocked, err := MeshBlockedEmails(database.GetDB(), time.Now().Unix())
+	blocked, err := MeshBlockedEmailsNow(database.GetDB())
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +85,11 @@ func MeshClientAllowed(email string) (bool, error) {
 	if len(bindings) == 0 {
 		return true, nil
 	}
-	n, err := quotaescrow.NewStore(db).Admission(bindings[0].Subscription, bindings[0].Owner, time.Now().Unix())
+	now, err := checkedMeshUnix(db)
+	if err != nil {
+		return false, nil
+	}
+	n, err := quotaescrow.NewStore(db).Admission(bindings[0].Subscription, bindings[0].Owner, now)
 	if err != nil {
 		return false, nil
 	}

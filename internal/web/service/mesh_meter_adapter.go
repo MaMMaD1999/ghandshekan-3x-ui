@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
@@ -29,6 +30,9 @@ func ActivateMeshMeters(db *gorm.DB, p quotaescrow.Policy, owner string, emails 
 		seen[email] = true
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := quotaescrow.InitializeClock(tx, time.Now()); err != nil {
+			return err
+		}
 		meters := make([]quotaescrow.Meter, 0, len(emails))
 		bindings := make([]model.MeshBinding, 0, len(emails))
 		for _, email := range emails {

@@ -202,7 +202,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	meshBlocked, err := MeshBlockedEmails(database.GetDB(), time.Now().Unix())
+	meshBlocked, err := MeshBlockedEmailsNow(database.GetDB())
 	if err != nil {
 		return nil, err
 	}

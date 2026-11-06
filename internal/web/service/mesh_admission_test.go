@@ -24,6 +24,9 @@ func TestMeshAdmissionBlocksAllAliasesWithoutChangingStoredClients(t *testing.T)
 	if err := store.Create(p); err != nil {
 		t.Fatal(err)
 	}
+	if err := quotaescrow.InitializeClock(db, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	for _, email := range []string{"phone", "laptop"} {
 		if err := db.Create(&model.MeshBinding{Email: email, Subscription: p.Subscription, Owner: "owner"}).Error; err != nil {
 			t.Fatal(err)

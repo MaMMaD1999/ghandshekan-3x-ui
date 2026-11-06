@@ -187,5 +187,16 @@ enrollment, checked-clock and supervised runtime integration described above.
 The checked-clock component now persists a time floor, refuses a missing clock
 record during normal runtime, and rejects a backward clock on process restart.
 Its tests cover small clock corrections, restart rollback and failed disk writes.
-This is not a replacement for an external restore checkpoint, and is not yet
-wired into the production mesh supervisor.
+This is not a replacement for an external restore checkpoint. Cold configuration
+and hot admission now use the checked clock for enrolled aliases; ordinary
+unenrolled clients retain their behavior. Enrollment initializes the floor in
+its transaction, and `MeshEnforcer.ReconcileCurrent` uses it for local decisions.
+The production mesh supervisor is still pending.
+
+Enrollment authorization now signs the complete policy, node identities and
+alias mapping with a separately pinned authority key. Validity is limited to
+15 minutes. Tests reject changed aliases/quotas, wrong node identities, stale
+envelopes, shared node keys and reusing a usage key as the enrollment authority.
+The endpoint/orchestrator must still validate authoritative clients and drain
+runtime sessions before committing `ActivateMeshMeters`; a verified signature
+alone does not authorize skipping that barrier.

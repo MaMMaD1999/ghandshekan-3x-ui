@@ -23,6 +23,16 @@ type MeshEnforcer struct {
 	known       map[string]bool
 }
 
+// ReconcileCurrent uses the durable checked clock. Even when the clock cannot be
+// trusted, settle actual traffic and fence enrolled aliases; do not renew time.
+func (e *MeshEnforcer) ReconcileCurrent(ctx context.Context) error {
+	now, err := checkedMeshUnix(e.DB)
+	if err != nil {
+		return errors.Join(err, e.Reconcile(ctx, -1))
+	}
+	return e.Reconcile(ctx, now)
+}
+
 // Reconcile never uses peer availability as a reason to free spending rights.
 // now must come from the supervisor's checked clock, not an untrusted request.
 func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
