@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+// Wire-compatible client contract for the custom core's StatsService gates.
+// Keep this namespace distinct so upgrading the ordinary upstream core Go
+// dependency cannot register duplicate protobuf descriptors at startup.
+package ghandshekan.meshgate.v1;
+option go_package = "github.com/mhsanaei/3x-ui/v3/internal/xray/meshgate";
+
+message GetRequest {}
+message ReplaceRequest {
+  string instance = 1;
+  uint64 revision = 2;
+  repeated string blocked_emails = 3;
+}
+message State {
+  string instance = 1;
+  uint64 revision = 2;
+  repeated string blocked_emails = 3;
+}

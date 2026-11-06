@@ -130,3 +130,28 @@ trust, safe live-session cutoff, supervised metering/gossip workers, distributed
 reset/renewal integration, checked-clock handling, and end-to-end partition
 acceptance tests with real traffic. Do not enroll live subscriptions or label
 this branch a completed mesh release until those checks pass.
+
+Runtime gate work on 2026-11-06 (not yet installed on production):
+
+- Custom core commit `4a19ecd0` adds explicit per-user runtime gates. A gate
+  closes existing inbound sockets and pipe endpoints, rather than relying on
+  credential removal. Ordinary RemoveUser behavior remains unchanged.
+- Core instance IDs and monotonically increasing revisions reject old-controller
+  unblock requests and conflicting retries. Registration and blocking are
+  serialized; a connection cannot escape between its admission check and tracking.
+- `XrayAPI.ReconcileUserGates` uses a separate protobuf wire contract, so the
+  panel's ordinary upstream core dependency and legacy adapters remain unchanged.
+- Core statistics/dispatcher tests pass with the Linux race detector. The panel
+  client passed an RPC compatibility test against the custom core's generated
+  server. A three-core VLESS/TCP test demonstrated closing an existing stream,
+  denying a new request, preserving an unrelated user's traffic, and reconnecting
+  after removing the local gate. The close deadline is shorter than the HTTP
+  client's own timeout, so that timeout cannot make the assertion pass.
+- This establishes the TCP runtime primitive, not complete mesh enforcement.
+  Supervised settlement/gossip, authenticated enrollment, lifecycle orchestration,
+  checked clocks/restore protection and other protocol paths still need integration
+  and acceptance testing before live enrollment.
+
+The integration tests use `-tags meshcore`, a temporary Go module replacement
+pointing at the custom core, and `MESH_TEST_CORE` pointing at its test executable.
+They use isolated loopback listeners and do not contact production inbounds.
