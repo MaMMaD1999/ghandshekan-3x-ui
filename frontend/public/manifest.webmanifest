@@ -10,19 +10,19 @@
     {
       "sizes": "192x192",
       "purpose": "any",
-      "src": "icons/ghandshekan-panel-192.png",
+      "src": "icons/ghandshekan-panel-192.png?v=gold-20261107",
       "type": "image/png"
     },
     {
       "sizes": "512x512",
       "purpose": "any",
-      "src": "icons/ghandshekan-panel-512.png",
+      "src": "icons/ghandshekan-panel-512.png?v=gold-20261107",
       "type": "image/png"
     },
     {
       "sizes": "512x512",
       "purpose": "maskable",
-      "src": "icons/ghandshekan-panel-maskable-512.png",
+      "src": "icons/ghandshekan-panel-maskable-512.png?v=gold-20261107",
       "type": "image/png"
     }
   ]

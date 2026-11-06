@@ -56,7 +56,7 @@ func TestPWAHeadInjectionUsesRuntimeBasePath(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			head := string(pwaHeadInjection(test.basePath, "login.html"))
-			if !strings.Contains(head, `href="`+strings.Replace(test.wantPath, "manifest.webmanifest", "icons/ghandshekan-panel-180.png", 1)+`"`) {
+			if !strings.Contains(head, `href="`+strings.Replace(test.wantPath, "manifest.webmanifest", "icons/ghandshekan-panel-180.png?v=gold-20261107", 1)+`"`) {
 				t.Fatalf("Apple icon URL does not respect panel base path: %q", head)
 			}
 			if !strings.Contains(head, `href="`+test.wantPath+`"`) {
