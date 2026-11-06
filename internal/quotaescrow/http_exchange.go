@@ -24,6 +24,9 @@ type HTTPExchange struct {
 	Subscription string
 	Peers        map[string]string
 	Client       *http.Client
+	// Checkpoint validates restores and durably records every locally published
+	// transfer/receipt before it can authorize spending on another member.
+	Checkpoint func() error
 }
 
 func decodeExchange(reader io.Reader) (SignedExchange, error) {
@@ -93,6 +96,11 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if h.Store == nil {
 		return errors.New("missing accounting store")
 	}
+	if h.Checkpoint != nil {
+		if err := h.Checkpoint(); err != nil {
+			return err
+		}
+	}
 	l, err := h.Store.Load(h.Subscription)
 	if err != nil {
 		return err
@@ -101,11 +109,22 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if err != nil {
 		return err
 	}
+	if h.Checkpoint != nil {
+		if err := h.Checkpoint(); err != nil {
+			return err
+		}
+	}
 	receipt, err := h.post(ctx, via, request, false)
 	if err != nil {
 		return err
 	}
-	return h.Store.AcceptReceipt(request, receipt)
+	if err := h.Store.AcceptReceipt(request, receipt); err != nil {
+		return err
+	}
+	if h.Checkpoint != nil {
+		return h.Checkpoint()
+	}
+	return nil
 }
 
 // Handler supports one authenticated intermediary. This is deliberately bounded:
@@ -121,6 +140,12 @@ func (h HTTPExchange) Handler() http.Handler {
 		if h.Store == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
+		}
+		if h.Checkpoint != nil {
+			if err := h.Checkpoint(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 		}
 		request, err := decodeExchange(r.Body)
 		if err != nil {
@@ -152,6 +177,12 @@ func (h HTTPExchange) Handler() http.Handler {
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
+		}
+		if h.Checkpoint != nil {
+			if err := h.Checkpoint(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(receipt)

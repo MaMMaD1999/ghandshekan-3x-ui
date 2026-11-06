@@ -1393,6 +1393,9 @@ func (s *XrayService) TestRoute(req xray.RouteTestRequest) (*xray.RouteTestResul
 func (s *XrayService) RestartXray(isForce bool) error {
 	lock.Lock()
 	defer lock.Unlock()
+	if meshRestoreFault.Load() {
+		return ErrMeshRestore
+	}
 	logger.Debug("restart Xray, force:", isForce)
 	if !isForce && isManuallyStopped.Load() {
 		return nil

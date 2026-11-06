@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 var meshGuardEnabled atomic.Bool
 var meshAdmissionReady atomic.Bool
+var meshRestoreFault atomic.Bool
 
 // Protected by the core lifecycle lock. A changed deny set must also reconcile
 // credentials filtered out during a previous config reload or cold start.
@@ -23,12 +26,41 @@ var meshLastDenied []string
 
 // BeginMeshRuntime runs before any production core start. A missing/invalid
 // identity leaves enrolled clients fenced, while legacy clients remain usable.
-func BeginMeshRuntime()  { meshGuardEnabled.Store(true); meshAdmissionReady.Store(false) }
-func meshCanAdmit() bool { return !meshGuardEnabled.Load() || meshAdmissionReady.Load() }
+func BeginMeshRuntime() {
+	meshGuardEnabled.Store(true)
+	meshAdmissionReady.Store(false)
+	meshRestoreFault.Store(false)
+	if err := preflightMeshCheckpoint(); err != nil {
+		meshRestoreFault.Store(true)
+	}
+}
+
+// Before any core start, detect restored aliases even if the restored panel DB
+// predates enrollment entirely. A DB-only rollback cannot reopen those users.
+func preflightMeshCheckpoint() error {
+	c, _, err := LoadMeshConfig(MeshConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cp, err := OpenMeshCheckpoint(database.GetDB(), c, false)
+	if err != nil {
+		return err
+	}
+	return cp.Close()
+}
+func meshCanAdmit() bool {
+	return !meshRestoreFault.Load() && (!meshGuardEnabled.Load() || meshAdmissionReady.Load())
+}
 
 // FenceMeshRuntime serializes core fences with configuration reloads. A new core
 // starts without enrolled users and gains them only after this acknowledgement.
 func (s *XrayService) FenceMeshRuntime(ctx context.Context, blocked []string) error {
+	if meshRestoreFault.Load() {
+		return ErrMeshRestore
+	}
 	changed, err := func() (bool, error) {
 		lock.Lock()
 		defer lock.Unlock()

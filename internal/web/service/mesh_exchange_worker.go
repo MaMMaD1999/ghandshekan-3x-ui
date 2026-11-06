@@ -25,12 +25,13 @@ type MeshExchangeWorker struct {
 	Trust           *tls.Config
 	Direct          *http.Client
 	AccountingProxy func() string
+	Checkpoint      func() error
 	mu              sync.Mutex
 	cursor          int
 }
 
 func (w *MeshExchangeWorker) Handler() http.Handler {
-	return (quotaescrow.HTTPExchange{Store: quotaescrow.NewStore(w.DB), Owner: w.Owner, Key: w.Key, Peers: w.Peers, Client: w.Direct}).Handler()
+	return (quotaescrow.HTTPExchange{Store: quotaescrow.NewStore(w.DB), Owner: w.Owner, Key: w.Key, Peers: w.Peers, Client: w.Direct, Checkpoint: w.Checkpoint}).Handler()
 }
 
 // Cycle bounds work and retains a round-robin cursor so unreachable peers do
@@ -69,7 +70,7 @@ func (w *MeshExchangeWorker) Cycle(ctx context.Context) error {
 			}()
 			for subscription := range jobs {
 				store := quotaescrow.NewStore(w.DB)
-				exchange := quotaescrow.HTTPExchange{Store: store, Owner: w.Owner, Key: w.Key, Subscription: subscription, Peers: w.Peers, Client: w.Direct}
+				exchange := quotaescrow.HTTPExchange{Store: store, Owner: w.Owner, Key: w.Key, Subscription: subscription, Peers: w.Peers, Client: w.Direct, Checkpoint: w.Checkpoint}
 				transport := quotaescrow.SyncTransport{Direct: exchange.Attempt, Relay: exchange.Attempt, AttemptTimeout: 2 * time.Second, MaxRelays: 4}
 				transport.Egress = func(c context.Context, destination, via string, rows []quotaescrow.SignedRow) error {
 					if w.AccountingProxy == nil {

@@ -114,6 +114,17 @@ func TestMeshRuntimeCutsRealStreamWithMasterOffline(t *testing.T) {
 			t.Fatal(err)
 		}
 		installTestMeshIdentity(t, p, owner, key)
+		cfg, _, err := service.LoadMeshConfig(filepath.Join(p.dir, "db", "mesh", "identity.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkpoint, err := service.OpenMeshCheckpoint(database.GetDB(), cfg, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkpoint.Close(); err != nil {
+			t.Fatal(err)
+		}
 	})
 	p.start()
 	t.Cleanup(func() { _, _ = p.try(http.MethodPost, "/panel/api/server/stopXrayService", nil) })

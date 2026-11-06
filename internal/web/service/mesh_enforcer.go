@@ -19,6 +19,7 @@ type MeshEnforcer struct {
 	DB          *gorm.DB
 	KeyForOwner func(string) (ed25519.PrivateKey, error)
 	Fence       func(context.Context, []string) error
+	Checkpoint  func() error
 	mu          sync.Mutex
 	known       map[string]bool
 }
@@ -59,6 +60,11 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 	defer e.mu.Unlock()
 	if e.DB == nil || e.Fence == nil {
 		return &MeshFenceError{Err: errors.New("mesh enforcement is not configured")}
+	}
+	if e.Checkpoint != nil {
+		if err := e.Checkpoint(); err != nil {
+			return &MeshFenceError{Err: err}
+		}
 	}
 	if e.known == nil {
 		e.known = map[string]bool{}
@@ -103,6 +109,11 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 			if !present[email] {
 				blocked[email] = true
 			}
+		}
+	}
+	if e.Checkpoint != nil {
+		if err := e.Checkpoint(); err != nil {
+			return &MeshFenceError{Err: err}
 		}
 	}
 	errList := []error{settleErr, decisionErr, e.apply(ctx, blocked)}

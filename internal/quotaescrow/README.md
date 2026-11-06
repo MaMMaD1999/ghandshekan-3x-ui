@@ -237,3 +237,26 @@ This supersedes the earlier notes about pending runtime wiring, not the remainin
 rollout requirements. Live enrollment, subscription lifecycle orchestration,
 restore checkpoints and multi-node partition acceptance still require completion.
 The release does not automatically enroll existing subscriptions.
+
+Restore checkpoint integration tested on 2026-11-07 (not yet enabled in production):
+
+- A separately stored, node-signed SQLite checkpoint records enrolled bindings,
+  signed usage/transfer rows, local meters, settlement watermarks and the clock
+  floor. Subscription IDs are namespaced separately from checkpoint metadata.
+- Higher revision numbers cannot hide regressed signed counters. Epoch changes
+  need the old members' signed freeze archive; renewal retains actual usage and
+  reset starts a new cycle without rebilling existing lifetime meters.
+- Startup checks the checkpoint before core admission, including a panel backup
+  that predates enrollment entirely. A restore fault also prevents automatic
+  core restart. The enforcer validates before settlement and before admission;
+  peer traffic cannot publish a receipt until its checkpoint is committed.
+- Tests cover missing bindings/meters/checkpoints, clock and watermark rollback,
+  modified signatures, reset/renewal replay and a failed checkpoint write before
+  publication. Service/job/ledger regressions passed, and the real offline-master
+  stream-cutoff acceptance passed with this checkpoint wired into the runtime.
+- Restoring an entire host, including both databases and its signing identity,
+  still requires explicit reconciliation/fencing against surviving peers. The
+  checkpoint is protection against panel DB rollback, not a hardware counter.
+
+Secure live enrollment/lifecycle orchestration and multi-node rollout acceptance
+remain required before advertising the mesh capability or enrolling subscribers.

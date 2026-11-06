@@ -22,13 +22,14 @@ import (
 // MeshRuntime owns the private peer listener and both supervised workers. Its
 // identity is installed by the operator, never returned through the panel API.
 type MeshRuntime struct {
-	cancel   context.CancelFunc
-	done     chan struct{}
-	server   *http.Server
-	client   *http.Client
-	xray     *XrayService
-	enforcer *MeshEnforcer
-	once     sync.Once
+	cancel     context.CancelFunc
+	done       chan struct{}
+	server     *http.Server
+	client     *http.Client
+	xray       *XrayService
+	enforcer   *MeshEnforcer
+	checkpoint *MeshCheckpoint
+	once       sync.Once
 }
 
 func MeshConfigPath() string {
@@ -64,6 +65,17 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 	if owner != c.Owner {
 		return nil, errors.New("mesh identity belongs to a different panel")
 	}
+	checkpoint, err := OpenMeshCheckpoint(database.GetDB(), c, false)
+	if err != nil {
+		meshRestoreFault.Store(true)
+		return nil, err
+	}
+	started := false
+	defer func() {
+		if !started {
+			checkpoint.Close()
+		}
+	}()
 	direct, _, err := quotaescrow.HTTPClients(trust, "")
 	if err != nil {
 		return nil, err
@@ -74,14 +86,23 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	r := &MeshRuntime{cancel: cancel, done: make(chan struct{}), client: direct, xray: core}
+	r := &MeshRuntime{cancel: cancel, done: make(chan struct{}), client: direct, xray: core, checkpoint: checkpoint}
 	worker := &MeshExchangeWorker{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Peers: c.Peers, Trust: trust, Direct: direct, AccountingProxy: settings.AccountingSyncProxyURL}
+	check := func() error {
+		if err := checkpoint.Advance(database.GetDB()); err != nil {
+			meshRestoreFault.Store(true)
+			return err
+		}
+		return nil
+	}
+	worker.Checkpoint = check
 	r.enforcer = &MeshEnforcer{DB: database.GetDB(), Fence: core.FenceMeshRuntime, KeyForOwner: func(owner string) (ed25519.PrivateKey, error) {
 		if owner != c.Owner {
 			return nil, errors.New("foreign local meter owner")
 		}
 		return ed25519.PrivateKey(c.PrivateKey), nil
 	}}
+	r.enforcer.Checkpoint = check
 	// Cap concurrent authenticated exchanges as well as payload sizes. No panel
 	// login, bearer credential or unrestricted proxy endpoint is mounted here.
 	capacity := make(chan struct{}, 16)
@@ -120,6 +141,7 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 	}}
 	go func() {
 		defer close(r.done)
+		defer checkpoint.Close()
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
@@ -138,6 +160,7 @@ func StartMeshRuntime(parent context.Context, core *XrayService) (*MeshRuntime, 
 		wg.Wait()
 		direct.CloseIdleConnections()
 	}()
+	started = true
 	return r, nil
 }
 
