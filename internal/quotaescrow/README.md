@@ -200,3 +200,11 @@ envelopes, shared node keys and reusing a usage key as the enrollment authority.
 The endpoint/orchestrator must still validate authoritative clients and drain
 runtime sessions before committing `ActivateMeshMeters`; a verified signature
 alone does not authorize skipping that barrier.
+
+The supervisor component runs local enforcement separately from network exchange
+and waits for both workers on cancellation. An unconfirmed runtime fence or a
+worker panic invokes a synchronous emergency-stop callback; an already-fenced
+settlement failure or ordinary peer outage does not stop unrelated users.
+Race-detector tests passed three repetitions for blocked network exchanges,
+continued local cycles, cancellation and fatal-fence/panic handling. This is
+still a component awaiting production configuration and lifecycle wiring.

@@ -23,6 +23,13 @@ type MeshEnforcer struct {
 	known       map[string]bool
 }
 
+// MeshFenceError means the runtime barrier was not confirmed. The supervisor
+// must stop the managed runtime, rather than merely logging an accounting error.
+type MeshFenceError struct{ Err error }
+
+func (e *MeshFenceError) Error() string { return "mesh runtime fence unconfirmed: " + e.Err.Error() }
+func (e *MeshFenceError) Unwrap() error { return e.Err }
+
 // ReconcileCurrent uses the durable checked clock. Even when the clock cannot be
 // trusted, settle actual traffic and fence enrolled aliases; do not renew time.
 func (e *MeshEnforcer) ReconcileCurrent(ctx context.Context) error {
@@ -39,7 +46,7 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.DB == nil || e.Fence == nil {
-		return errors.New("mesh enforcement is not configured")
+		return &MeshFenceError{Err: errors.New("mesh enforcement is not configured")}
 	}
 	if e.known == nil {
 		e.known = map[string]bool{}
@@ -49,7 +56,7 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 		if len(e.known) == 0 {
 			// Without a known admission set, replacing the core's fence with an
 			// empty list would reopen previously blocked sessions after restart.
-			return err
+			return &MeshFenceError{Err: err}
 		}
 		return errors.Join(err, e.apply(ctx, e.known))
 	}
@@ -101,5 +108,8 @@ func (e *MeshEnforcer) apply(ctx context.Context, blocked map[string]bool) error
 		}
 	}
 	slices.Sort(emails)
-	return e.Fence(ctx, emails)
+	if err := e.Fence(ctx, emails); err != nil {
+		return &MeshFenceError{Err: err}
+	}
+	return nil
 }
