@@ -155,3 +155,23 @@ Runtime gate work on 2026-11-06 (not yet installed on production):
 The integration tests use `-tags meshcore`, a temporary Go module replacement
 pointing at the custom core, and `MESH_TEST_CORE` pointing at its test executable.
 They use isolated loopback listeners and do not contact production inbounds.
+
+Automatic quota cutoff acceptance on 2026-11-06:
+
+- Core `4de8fd8a` keeps mesh and ordinary configuration fences independent;
+  clearing one cannot reopen a user denied by the other.
+- The traffic job now reconciles disabled users even when whole-core restart on
+  disable is switched off. A custom core closes their existing sockets; legacy
+  cores retain their existing configured restart policy. A node-sync-authorized
+  reconcile endpoint carries this behavior to updated remote nodes.
+- Real VLESS, VMess and Trojan streams, with and without Mux, passed three runs
+  of cutoff, new-connection denial, unrelated-user survival and re-enable tests.
+- `TestAutomaticQuotaCutoffWithoutRestart` starts a real panel and core, with
+  restart-on-disable off, and waits for the scheduled quota job (no direct test
+  gate command). Both volume exhaustion and expiry cut the ongoing download;
+  the core instance stays unchanged and another user's open download continues.
+- Quota detection still follows the traffic polling interval; these tests do
+  not claim a zero-byte overrun or coverage of the Psiphon application itself.
+- Full web/service/runtime/controller/job, xray and escrow regression tests pass.
+  None of this evidence means that mesh provisioning or production rollout is
+  complete; the deployment blockers above still apply.

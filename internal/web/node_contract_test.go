@@ -315,6 +315,12 @@ func TestMasterNodeContract(t *testing.T) {
 					_, err := master.ListRemoteTags(ctx)
 					return err
 				}, nil},
+				{"ReconcileXray reaches the custom node without administrator scope", []string{"ReconcileXray"}, func() error {
+					if err := master.ReconcileXray(ctx); err != nil && strings.Contains(err.Error(), "HTTP ") {
+						return err
+					}
+					return nil
+				}, nil},
 				{"RestartXray is accepted by the node", []string{"RestartXray"}, func() error {
 					// No core binary here: only the node's own restart failure may come back.
 					if err := master.RestartXray(ctx); err != nil && !strings.Contains(err.Error(), "rebooting the Xray") {

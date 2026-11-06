@@ -100,15 +100,12 @@ func (j *XrayTrafficJob) Run() {
 		logger.Warning("add outbound traffic failed:", err)
 	}
 	if clientsDisabled {
-		restartOnDisable, settingErr := j.settingService.GetRestartXrayOnClientDisable()
-		if settingErr != nil {
-			logger.Warning("get RestartXrayOnClientDisable failed:", settingErr)
-		}
-		if restartOnDisable {
-			if err := j.xrayService.RestartXray(false); err != nil {
-				logger.Warning("reconcile xray after disabling clients failed:", err)
-				j.xrayService.SetToNeedRestart()
-			}
+		// Reconcile even when whole-core restarts are disabled: custom cores can
+		// now close only the depleted user's streams. Legacy cores still honor
+		// RestartXrayOnClientDisable inside the hot-apply fallback.
+		if err := j.xrayService.RestartXray(false); err != nil {
+			logger.Warning("reconcile xray after disabling clients failed:", err)
+			j.xrayService.SetToNeedRestart()
 		}
 		websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
 	}

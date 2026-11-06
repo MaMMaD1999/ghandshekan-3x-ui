@@ -69,6 +69,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 
 	g.POST("/stopXrayService", a.stopXrayService)
 	g.POST("/restartXrayService", a.restartXrayService)
+	g.POST("/reconcileXrayService", a.reconcileXrayService)
 	g.POST("/installXray/:version", a.installXray)
 	g.POST("/updatePanel", a.updatePanel)
 	g.POST("/setUpdateChannel", a.setUpdateChannel)
@@ -300,6 +301,13 @@ func (a *ServerController) restartXrayService(c *gin.Context) {
 		"Xray service has been restarted successfully",
 		"success",
 	)
+}
+
+// reconcileXrayService applies current settings without forcing a global
+// restart. Custom runtime gates can drop depleted users alone.
+func (a *ServerController) reconcileXrayService(c *gin.Context) {
+	err := (&service.XrayService{}).RestartXray(false)
+	jsonMsg(c, "", err)
 }
 
 // getLogs retrieves the application logs based on count, level, and syslog filters.

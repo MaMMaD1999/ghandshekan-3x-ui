@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1476,13 +1477,6 @@ func (s *XrayService) tryHotApply(process *xray.Process, newCfg *xray.Config) bo
 		persistHotConfig(process)
 		return true
 	}
-	// The core's RemoveUser drops the credential only, so a disabled or deleted
-	// client needs the restart this setting asks for.
-	if s.restartToDropClients(diff) {
-		logger.Info("hot apply: clients left the config, restarting to drop their live sessions")
-		return false
-	}
-
 	apiPort := process.GetAPIPort()
 	if apiPort <= 0 {
 		return false
@@ -1495,6 +1489,25 @@ func (s *XrayService) tryHotApply(process *xray.Process, newCfg *xray.Config) bo
 		return false
 	}
 	defer hotAPI.Close()
+
+	gated := false
+	previous, previousSupported := configGateUsers(oldCfg)
+	active, activeSupported := configGateUsers(newCfg)
+	if previousSupported && activeSupported {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := hotAPI.ReconcileConfigGates(ctx, previous, active)
+		cancel()
+		if err == nil {
+			gated = true
+		} else if !xray.IsUserGateUnsupported(err) {
+			logger.Warning("hot apply: runtime user fence failed:", err)
+			return false
+		}
+	}
+	if !gated && s.restartToDropClients(diff) {
+		logger.Info("hot apply: runtime gates unavailable for this config, restarting to drop live sessions")
+		return false
+	}
 
 	// Removals first so changed handlers and port swaps never collide with
 	// the additions that follow.

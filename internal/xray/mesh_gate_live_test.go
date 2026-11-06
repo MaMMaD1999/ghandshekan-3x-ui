@@ -21,6 +21,14 @@ import (
 // Three isolated core processes exercise the real VLESS and SOCKS paths. No
 // public network or production inbound is used. Set MESH_TEST_CORE explicitly.
 func TestMeshGateLiveTraffic(t *testing.T) {
+	for _, protocol := range []string{"vless", "vmess", "trojan"} {
+		for _, mux := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/mux=%v", protocol, mux), func(t *testing.T) { testMeshGateLiveTraffic(t, protocol, mux) })
+		}
+	}
+}
+
+func testMeshGateLiveTraffic(t *testing.T, protocol string, mux bool) {
 	binary := os.Getenv("MESH_TEST_CORE")
 	if binary == "" {
 		t.Skip("MESH_TEST_CORE is not set")
@@ -73,9 +81,18 @@ func TestMeshGateLiveTraffic(t *testing.T) {
 	}
 	const phoneID = "ee4b22db-e583-4b11-a2d2-84df9017c832"
 	const otherID = "6d83d4ac-f1c4-4d05-87b4-9485471845b0"
-	start("server", fmt.Sprintf(`{"log":{"loglevel":"warning"},"stats":{},"api":{"tag":"api","services":["StatsService"]},"policy":{"levels":{"0":{"statsUserUplink":true,"statsUserDownlink":true}}},"inbounds":[{"tag":"api","listen":"127.0.0.1","port":%d,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}},{"tag":"users","listen":"127.0.0.1","port":%d,"protocol":"vless","settings":{"clients":[{"id":"%s","email":"phone"},{"id":"%s","email":"other"}],"decryption":"none"}}],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.1/32"]}]}}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}}`, apiPort, serverPort, phoneID, otherID), apiPort)
+	identityField := "id"
+	if protocol == "trojan" {
+		identityField = "password"
+	}
+	serverSettings := fmt.Sprintf(`{"clients":[{"%s":"%s","email":"phone"},{"%s":"%s","email":"other"}],"decryption":"none"}`, identityField, phoneID, identityField, otherID)
+	start("server", fmt.Sprintf(`{"log":{"loglevel":"warning"},"stats":{},"api":{"tag":"api","services":["StatsService"]},"policy":{"levels":{"0":{"statsUserUplink":true,"statsUserDownlink":true}}},"inbounds":[{"tag":"api","listen":"127.0.0.1","port":%d,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}},{"tag":"users","listen":"127.0.0.1","port":%d,"protocol":"%s","settings":%s}],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.1/32"]}]}}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}}`, apiPort, serverPort, protocol, serverSettings), apiPort)
 	client := func(name, id string, socksPort int) *http.Client {
-		start(name, fmt.Sprintf(`{"log":{"loglevel":"warning"},"inbounds":[{"listen":"127.0.0.1","port":%d,"protocol":"socks","settings":{"auth":"noauth"}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"127.0.0.1","port":%d,"users":[{"id":"%s","encryption":"none"}]}]}}]}`, socksPort, serverPort, id), socksPort)
+		settings := fmt.Sprintf(`{"vnext":[{"address":"127.0.0.1","port":%d,"users":[{"id":"%s","encryption":"none","security":"auto"}]}]}`, serverPort, id)
+		if protocol == "trojan" {
+			settings = fmt.Sprintf(`{"servers":[{"address":"127.0.0.1","port":%d,"password":"%s"}]}`, serverPort, id)
+		}
+		start(name, fmt.Sprintf(`{"log":{"loglevel":"warning"},"inbounds":[{"listen":"127.0.0.1","port":%d,"protocol":"socks","settings":{"auth":"noauth"}}],"outbounds":[{"protocol":"%s","settings":%s,"mux":{"enabled":%v,"concurrency":4}}]}`, socksPort, protocol, settings, mux), socksPort)
 		dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), nil, &net.Dialer{Timeout: time.Second})
 		if err != nil {
 			t.Fatal(err)
@@ -85,20 +102,21 @@ func TestMeshGateLiveTraffic(t *testing.T) {
 		return &http.Client{Transport: transport, Timeout: 10 * time.Second}
 	}
 	phone, other := client("phone", phoneID, phonePort), client("other", otherID, otherPort)
+	payload := make([]byte, 64<<10)
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/stream" {
 			_, _ = io.WriteString(w, "ok")
 			return
 		}
 		for {
-			if _, err := io.WriteString(w, "x"); err != nil {
+			if _, err := w.Write(payload); err != nil {
 				return
 			}
 			w.(http.Flusher).Flush()
 			select {
 			case <-r.Context().Done():
 				return
-			case <-time.After(20 * time.Millisecond):
+			case <-time.After(time.Millisecond):
 			}
 		}
 	}))
@@ -119,7 +137,13 @@ func TestMeshGateLiveTraffic(t *testing.T) {
 	defer api.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err = api.ReconcileUserGates(ctx, []string{"phone"}); err != nil {
+	if err = api.ReconcileConfigGates(ctx, []string{"phone", "other"}, []string{"phone", "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.ReadFull(response.Body, first[:]); err != nil {
+		t.Fatal("credential-preserving update cut active stream", err)
+	}
+	if err = api.ReconcileConfigGates(ctx, []string{"phone", "other"}, []string{"other"}); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
@@ -141,6 +165,16 @@ func TestMeshGateLiveTraffic(t *testing.T) {
 	r.Body.Close()
 	if err != nil || string(body) != "ok" {
 		t.Fatal("unrelated user lost traffic", string(body), err)
+	}
+	if err = api.ReconcileUserGates(ctx, []string{"phone"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = api.ReconcileConfigGates(ctx, []string{"other"}, []string{"phone", "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := phone.Get(target.URL); err == nil {
+		r.Body.Close()
+		t.Fatal("config renewal bypassed mesh gate")
 	}
 	if err = api.ReconcileUserGates(ctx, nil); err != nil {
 		t.Fatal(err)

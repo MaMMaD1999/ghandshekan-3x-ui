@@ -1550,9 +1550,6 @@ func (s *InboundService) restartRemoteNodesOnDisable(nodeIDs []int) {
 		logger.Warning("disableInvalidClients: get RestartXrayOnClientDisable failed:", err)
 		return
 	}
-	if !restartOnDisable {
-		return
-	}
 	// Best-effort and never replayed: a hanging node must not hold the traffic poll.
 	common.GoRecover("restart-nodes-on-client-disable", func() {
 		for _, nodeID := range nodeIDs {
@@ -1560,6 +1557,14 @@ func (s *InboundService) restartRemoteNodesOnDisable(nodeIDs []int) {
 			rt, rtErr := runtime.GetManager().RuntimeFor(&nodeIDCopy)
 			if rtErr != nil {
 				logger.Warning("disableInvalidClients: get runtime for node", nodeID, "failed:", rtErr)
+				continue
+			}
+			if reconciler, ok := rt.(interface{ ReconcileXray(context.Context) error }); ok {
+				if err := reconciler.ReconcileXray(context.Background()); err == nil {
+					continue
+				}
+			}
+			if !restartOnDisable {
 				continue
 			}
 			if rtErr = rt.RestartXray(context.Background()); rtErr != nil {

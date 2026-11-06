@@ -7200,6 +7200,36 @@
         }
       }
     },
+    "/panel/api/server/reconcileXrayService": {
+      "post": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Apply the current configuration using hot reload and per-user runtime gates where supported. Falls back to restart when required by the change and existing policy.",
+        "operationId": "post_panel_api_server_reconcileXrayService",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/server/installXray/{version}": {
       "post": {
         "tags": [

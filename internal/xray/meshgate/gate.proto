@@ -6,14 +6,16 @@ syntax = "proto3";
 package ghandshekan.meshgate.v1;
 option go_package = "github.com/mhsanaei/3x-ui/v3/internal/xray/meshgate";
 
-message GetRequest {}
+message GetRequest { string scope = 1; }
 message ReplaceRequest {
   string instance = 1;
   uint64 revision = 2;
   repeated string blocked_emails = 3;
+  string scope = 4;
 }
 message State {
   string instance = 1;
   uint64 revision = 2;
   repeated string blocked_emails = 3;
+  string scope = 4;
 }

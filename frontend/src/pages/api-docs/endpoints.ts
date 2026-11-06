@@ -657,6 +657,11 @@ export const sections: readonly Section[] = [
           'Reload Xray with the current config. Typically required after structural inbound or routing changes.',
         errorResponse: '{\n  "success": false,\n  "msg": "Xray config is invalid: ..."\n}',
       },
+        {
+          method: 'POST',
+          path: '/panel/api/server/reconcileXrayService',
+          summary: 'Apply the current configuration using hot reload and per-user runtime gates where supported. Falls back to restart when required by the change and existing policy.',
+        },
       {
         method: 'POST',
         path: '/panel/api/server/installXray/:version',

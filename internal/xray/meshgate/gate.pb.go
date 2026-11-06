@@ -27,6 +27,7 @@ const (
 
 type GetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         string                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -61,11 +62,19 @@ func (*GetRequest) Descriptor() ([]byte, []int) {
 	return file_internal_xray_meshgate_gate_proto_rawDescGZIP(), []int{0}
 }
 
+func (x *GetRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
 type ReplaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Instance      string                 `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	BlockedEmails []string               `protobuf:"bytes,3,rep,name=blocked_emails,json=blockedEmails,proto3" json:"blocked_emails,omitempty"`
+	Scope         string                 `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -121,11 +130,19 @@ func (x *ReplaceRequest) GetBlockedEmails() []string {
 	return nil
 }
 
+func (x *ReplaceRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
 type State struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Instance      string                 `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	BlockedEmails []string               `protobuf:"bytes,3,rep,name=blocked_emails,json=blockedEmails,proto3" json:"blocked_emails,omitempty"`
+	Scope         string                 `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -181,21 +198,31 @@ func (x *State) GetBlockedEmails() []string {
 	return nil
 }
 
+func (x *State) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
 var File_internal_xray_meshgate_gate_proto protoreflect.FileDescriptor
 
 const file_internal_xray_meshgate_gate_proto_rawDesc = "" +
 	"\n" +
-	"!internal/xray/meshgate/gate.proto\x12\x17ghandshekan.meshgate.v1\"\f\n" +
+	"!internal/xray/meshgate/gate.proto\x12\x17ghandshekan.meshgate.v1\"\"\n" +
 	"\n" +
-	"GetRequest\"o\n" +
+	"GetRequest\x12\x14\n" +
+	"\x05scope\x18\x01 \x01(\tR\x05scope\"\x85\x01\n" +
 	"\x0eReplaceRequest\x12\x1a\n" +
 	"\binstance\x18\x01 \x01(\tR\binstance\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12%\n" +
-	"\x0eblocked_emails\x18\x03 \x03(\tR\rblockedEmails\"f\n" +
+	"\x0eblocked_emails\x18\x03 \x03(\tR\rblockedEmails\x12\x14\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\"|\n" +
 	"\x05State\x12\x1a\n" +
 	"\binstance\x18\x01 \x01(\tR\binstance\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12%\n" +
-	"\x0eblocked_emails\x18\x03 \x03(\tR\rblockedEmailsB5Z3github.com/mhsanaei/3x-ui/v3/internal/xray/meshgateb\x06proto3"
+	"\x0eblocked_emails\x18\x03 \x03(\tR\rblockedEmails\x12\x14\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scopeB5Z3github.com/mhsanaei/3x-ui/v3/internal/xray/meshgateb\x06proto3"
 
 var (
 	file_internal_xray_meshgate_gate_proto_rawDescOnce sync.Once

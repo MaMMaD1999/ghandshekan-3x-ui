@@ -665,6 +665,13 @@ func (r *Remote) RestartXray(ctx context.Context) error {
 	return err
 }
 
+// ReconcileXray is an optional custom-panel capability; callers retain the
+// previous restart policy when an official/older node lacks this endpoint.
+func (r *Remote) ReconcileXray(ctx context.Context) error {
+	_, err := r.do(ctx, http.MethodPost, "panel/api/server/reconcileXrayService", nil)
+	return err
+}
+
 // UpdatePanel asks the node to run its own official self-updater (update.sh)
 // and restart onto the latest release. The node returns as soon as the job is
 // launched; the new version surfaces on the next heartbeat. When dev is true the
