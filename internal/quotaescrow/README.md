@@ -175,3 +175,11 @@ Automatic quota cutoff acceptance on 2026-11-06:
 - Full web/service/runtime/controller/job, xray and escrow regression tests pass.
   None of this evidence means that mesh provisioning or production rollout is
   complete; the deployment blockers above still apply.
+
+`service.MeshEnforcer` now joins durable settlement and runtime deny decisions
+in a serialized local cycle. A per-subscription settlement failure fences that
+subscription only; a global DB failure retains fences for all known aliases.
+Deleted bindings never implicitly reopen an alias. Tests cover retry without
+double billing, exhausted allowance, expiry, missing keys, unreadable bindings
+and an unconfirmed core fence. This adapter still requires the authenticated
+enrollment, checked-clock and supervised runtime integration described above.
