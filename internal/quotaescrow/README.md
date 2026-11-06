@@ -208,3 +208,10 @@ settlement failure or ordinary peer outage does not stop unrelated users.
 Race-detector tests passed three repetitions for blocked network exchanges,
 continued local cycles, cancellation and fatal-fence/panic handling. This is
 still a component awaiting production configuration and lifecycle wiring.
+
+The mesh HTTP-client factory ignores general proxy environment variables,
+requires verified explicit TLS trust, and exposes the accounting-sync SOCKS
+bridge only as a separate client restricted to loopback ports 62780–62789.
+Tests verify direct HTTPS still works with an invalid general HTTPS proxy and
+reject unrelated proxy endpoints and disabled certificate verification. The
+exchange supervisor must request that client only in the third-path callback.
