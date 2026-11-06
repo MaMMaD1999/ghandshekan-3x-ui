@@ -5065,6 +5065,67 @@
         }
       }
     },
+    "/sponsors": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Compatibility endpoint for cached clients. Returns an empty sponsor list; no advertising content is fetched or displayed.",
+        "operationId": "get_sponsors",
+        "deprecated": true,
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/pronet/capabilities": {
+      "get": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Report custom billed/raw traffic support and current custom-core readiness. This does not advertise autonomous mesh quota enforcement.",
+        "operationId": "get_panel_api_inbounds_pronet_capabilities",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/inbounds/list": {
       "get": {
         "tags": [
@@ -5657,6 +5718,61 @@
               },
               "example": {
                 "enable": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/{id}/trafficCoefficient": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Update the billed traffic coefficient for an owned inbound. An optional expectedCoefficient rejects stale concurrent edits with HTTP 409.",
+        "operationId": "post_panel_api_inbounds_id_trafficCoefficient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Inbound ID.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "trafficCoefficient": 1,
+                "expectedCoefficient": 1
               }
             }
           }
