@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -101,6 +102,11 @@ func (s *InboundService) DeliverNodeResets(ctx context.Context, nodeID int, rt r
 		return nil
 	}
 	bulk, canBulk := rt.(nodeBulkResetter)
+	var deliveryErrors []error
+	ack := func(row model.NodePendingReset) error {
+		return db.Where("id = ? AND queued_at = ?", row.Id, row.QueuedAt).
+			Delete(&model.NodePendingReset{}).Error
+	}
 	for start := 0; start < len(rows); start += sqlInChunk {
 		batch := rows[start:min(start+sqlInChunk, len(rows))]
 		emails := make([]string, len(batch))
@@ -111,23 +117,32 @@ func (s *InboundService) DeliverNodeResets(ctx context.Context, nodeID int, rt r
 		if canBulk && len(batch) > nodeBulkPushThreshold {
 			err = bulk.ResetClientTraffics(ctx, emails)
 		} else {
-			for _, email := range emails {
-				if err = rt.ResetClientTraffic(ctx, nil, email); err != nil {
-					break
+			for _, row := range batch {
+				if err := ctx.Err(); err != nil {
+					return errors.Join(append(deliveryErrors, err)...)
+				}
+				if err = rt.ResetClientTraffic(ctx, nil, row.Email); err != nil {
+					deliveryErrors = append(deliveryErrors, err)
+					continue
+				}
+				// A later client's failure must not replay an accepted reset.
+				if err := ack(row); err != nil {
+					return errors.Join(append(deliveryErrors, err)...)
 				}
 			}
+			continue
 		}
 		if err != nil {
-			return err
+			deliveryErrors = append(deliveryErrors, err)
+			continue
 		}
 		for i := range batch {
-			if err := db.Where("id = ? AND queued_at = ?", batch[i].Id, batch[i].QueuedAt).
-				Delete(&model.NodePendingReset{}).Error; err != nil {
+			if err := ack(batch[i]); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return errors.Join(deliveryErrors...)
 }
 
 // deliverNodeResetsNow tries each node once right after a reset commits; what

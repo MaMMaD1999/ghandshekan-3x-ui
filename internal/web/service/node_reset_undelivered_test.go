@@ -273,3 +273,43 @@ func TestConcurrentNodeResetDeliveriesSendOnce(t *testing.T) {
 		t.Fatalf("node received resets %v, want exactly [once]", got)
 	}
 }
+
+type selectiveResetRuntime struct {
+	resetRecordingRuntime
+	failEmail string
+}
+
+func (r *selectiveResetRuntime) ResetClientTraffic(ctx context.Context, ib *model.Inbound, email string) error {
+	if email == r.failEmail {
+		return errors.New("client temporarily unavailable")
+	}
+	return r.resetRecordingRuntime.ResetClientTraffic(ctx, ib, email)
+}
+
+func TestNodeResetPartialFailureAcknowledgesSuccesses(t *testing.T) {
+	setupBulkDB(t)
+	const nodeID = 9
+	for _, email := range []string{"before", "failed", "after"} {
+		if err := database.GetDB().Create(&model.NodePendingReset{NodeId: nodeID, Email: email, QueuedAt: 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	rt := &selectiveResetRuntime{failEmail: "failed"}
+	svc := &InboundService{}
+	if err := svc.DeliverNodeResets(context.Background(), nodeID, rt); err == nil {
+		t.Fatal("failed delivery must remain visible")
+	}
+	if got := pendingResetEmails(t, nodeID); !slices.Equal(got, []string{"failed"}) {
+		t.Fatalf("pending = %v; successful resets must not be replayed", got)
+	}
+	if got := rt.delivered(); !slices.Equal(got, []string{"before", "after"}) {
+		t.Fatalf("delivered = %v; one failure must not block another client", got)
+	}
+	rt.failEmail = ""
+	if err := svc.DeliverNodeResets(context.Background(), nodeID, rt); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.delivered(); !slices.Equal(got, []string{"before", "after", "failed"}) {
+		t.Fatalf("retry reset an already acknowledged client: %v", got)
+	}
+}
