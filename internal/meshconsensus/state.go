@@ -66,12 +66,16 @@ type Result struct {
 	Update *quotaescrow.PolicyUpdate `json:"update,omitempty"`
 }
 type applied struct {
-	Hash   string `json:"hash"`
-	Result Result `json:"result"`
+	Hash         string       `json:"hash"`
+	Result       Result       `json:"result"`
+	Subscription string       `json:"subscription,omitempty"`
+	Value        *policyValue `json:"value,omitempty"`
 }
 type subscription struct {
 	Base    Registration               `json:"base"`
 	Updates []quotaescrow.PolicyUpdate `json:"updates"`
+	TimerID string                     `json:"timerID,omitempty"`
+	Timer   *applied                   `json:"timer,omitempty"`
 }
 type state struct {
 	Epoch         string                  `json:"epoch"`
@@ -129,6 +133,9 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 	if len(log.Data) > 1<<20 || json.Unmarshal(log.Data, &c) != nil || c.ID == "" || len(c.ID) > 128 {
 		return Result{Error: "invalid control command"}
 	}
+	if err := validateTimerCommand(c); err != nil {
+		return Result{Error: err.Error()}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	h := digest(c)
@@ -136,10 +143,27 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		if old.Hash != h {
 			return Result{Error: "operation ID reused with different input"}
 		}
-		return copyJSON(old.Result)
+		return old.result(f.data.Subscriptions)
+	}
+	if c.Kind == "scheduled-reset" {
+		if sub, ok := f.data.Subscriptions[c.Subscription]; ok && sub.TimerID == c.ID && sub.Timer != nil {
+			if sub.Timer.Hash != h {
+				return Result{Error: "timer ID reused with different input"}
+			}
+			return sub.Timer.result(f.data.Subscriptions)
+		}
 	}
 	out := f.apply(c)
-	f.data.Requests[c.ID] = applied{Hash: h, Result: copyJSON(out)}
+	if c.Kind == "scheduled-reset" {
+		if out.Update != nil {
+			sub := f.data.Subscriptions[c.Subscription]
+			saved := compactResult(c, out)
+			sub.TimerID, sub.Timer = c.ID, &saved
+			f.data.Subscriptions[c.Subscription] = sub
+		}
+	} else {
+		f.data.Requests[c.ID] = compactResult(c, out)
+	}
 	return copyJSON(out)
 }
 
@@ -224,6 +248,11 @@ func (f *FSM) apply(c Command) Result {
 		return Result{Error: err.Error()}
 	}
 	sub.Updates = append(sub.Updates, u)
+	if len(sub.Updates) > 2 {
+		// Keep the predecessor for exact shape validation and the latest value
+		// for certification. Old manual retry results retain their small values.
+		sub.Updates = copyJSON(sub.Updates[len(sub.Updates)-2:])
+	}
 	f.data.Subscriptions[c.Subscription] = sub
 	return Result{Update: &u}
 }
@@ -245,6 +274,13 @@ func (f *FSM) Base(id string) (quotaescrow.Policy, error) {
 		return quotaescrow.Policy{}, errors.New("subscription is not registered")
 	}
 	return copyJSON(s.Base.Policy), nil
+}
+
+func (f *FSM) hasRequest(id string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	_, ok := f.data.Requests[id]
+	return ok
 }
 
 func (f *FSM) Policy(id string) (quotaescrow.Policy, error) {
@@ -303,6 +339,22 @@ func (f *FSM) Updates(id string, after uint64) ([]quotaescrow.PolicyUpdate, erro
 	return copyJSON(out), nil
 }
 
+// CommittedHead avoids copying an entire administrative history just to
+// certify the newest majority decision for a returning member.
+func (f *FSM) CommittedHead(id string) (quotaescrow.Policy, quotaescrow.PolicyUpdate, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	s, ok := f.data.Subscriptions[id]
+	if !ok || len(s.Updates) == 0 {
+		return quotaescrow.Policy{}, quotaescrow.PolicyUpdate{}, errors.New("no committed policy update")
+	}
+	previous := s.Base.Policy
+	if len(s.Updates) > 1 {
+		previous = s.Updates[len(s.Updates)-2].Next
+	}
+	return copyJSON(previous), copyJSON(s.Updates[len(s.Updates)-1]), nil
+}
+
 // Attest cannot sign caller-chosen content: the exact update must already be
 // present in this member's committed FSM, including after snapshot recovery.
 func (f *FSM) attest(u quotaescrow.PolicyUpdate, owner string, key ed25519.PrivateKey) ([]byte, error) {
@@ -312,7 +364,7 @@ func (f *FSM) attest(u quotaescrow.PolicyUpdate, owner string, key ed25519.Priva
 		return nil, errors.New("invalid attestation identity")
 	}
 	s, ok := f.data.Subscriptions[u.Next.Subscription]
-	if !ok || u.Next.Version < 2 || u.Next.Version-2 >= uint64(len(s.Updates)) || !quotaescrow.SamePolicyUpdate(s.Updates[u.Next.Version-2], u) {
+	if !ok || !slices.ContainsFunc(s.Updates, func(committed quotaescrow.PolicyUpdate) bool { return quotaescrow.SamePolicyUpdate(committed, u) }) {
 		return nil, errors.New("policy was not committed here")
 	}
 	return quotaescrow.PolicyUpdateVote(u, key), nil
@@ -370,13 +422,61 @@ func (f *FSM) Restore(r io.ReadCloser) error {
 				return errors.New("invalid snapshot update")
 			}
 			seen[u.ID] = true
-			if err := quotaescrow.VerifyPolicyShape(p, u); err != nil {
+			if err := verifyCommittedAdvance(p, u); err != nil {
 				return err
 			}
 			p = u.Next
 			request, ok := restored.Requests[u.ID]
-			if !ok || request.Result.Update == nil || !quotaescrow.SamePolicyUpdate(*request.Result.Update, u) {
+			if !ok && s.TimerID == u.ID && s.Timer != nil {
+				request, ok = *s.Timer, true
+			}
+			// The previous timer's payload can precede the saved timer receipt;
+			// its canonical boundary watermark prevents replay without a tombstone.
+			if !ok && u.Kind == "scheduled-reset" && u.ID == ScheduledOperationID(id, u.Next.ScheduledThrough) && s.Timer != nil && s.Timer.Value != nil && u.Next.ScheduledThrough < s.Timer.Value.ScheduledThrough {
+				continue
+			}
+			result := request.result(restored.Subscriptions)
+			if !ok || result.Update == nil || !quotaescrow.SamePolicyUpdate(*result.Update, u) {
 				return errors.New("snapshot lost operation identity")
+			}
+		}
+		if len(s.Updates) > 2 {
+			s.Updates = copyJSON(s.Updates[len(s.Updates)-2:])
+			restored.Subscriptions[id] = s
+		}
+		if s.Timer != nil {
+			out := s.Timer.result(restored.Subscriptions)
+			if out.Update == nil || out.Update.Kind != "scheduled-reset" || s.TimerID != out.Update.ID || out.Update.ID != ScheduledOperationID(id, out.Update.Next.ScheduledThrough) || out.Update.Next.Subscription != id || out.Update.Next.Version > p.Version || out.Update.Next.ScheduledThrough > p.ScheduledThrough {
+				return errors.New("invalid saved timer receipt")
+			}
+			if err := verifyCommittedAdvance(s.Base.Policy, *out.Update); err != nil {
+				return err
+			}
+		}
+	}
+	for id, receipt := range restored.Requests {
+		if _, err := hex.DecodeString(receipt.Hash); err != nil || len(receipt.Hash) != 64 {
+			return errors.New("invalid saved operation fingerprint")
+		}
+		out := receipt.result(restored.Subscriptions)
+		if receipt.Value != nil && (receipt.Result.Error != "" || receipt.Result.Update != nil || out.Error != "") {
+			return errors.New("conflicting compact operation receipt")
+		}
+		if out.Update != nil {
+			sub, exists := restored.Subscriptions[out.Update.Next.Subscription]
+			if !exists || out.Update.ID != id || len(out.Update.Votes) != 0 || len(out.Update.Signature) != 0 {
+				return errors.New("invalid saved operation result")
+			}
+			if err := verifyCommittedAdvance(sub.Base.Policy, *out.Update); err != nil {
+				return err
+			}
+			if len(sub.Updates) == 0 || out.Update.Next.Version > sub.Updates[len(sub.Updates)-1].Next.Version {
+				return errors.New("operation result exceeds committed version")
+			}
+			if receipt.Value == nil {
+				compact := compactResult(Command{}, out)
+				compact.Hash = receipt.Hash
+				restored.Requests[id] = compact
 			}
 		}
 	}

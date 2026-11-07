@@ -404,7 +404,31 @@ the cap during simultaneous partitions, but merges record actual bytes once.
   master outage/rejoin, calendar/DST and repeated race tests passed on Linux.
 
 Still required before subscriber rollout: automatic/native and application-parent
-membership integration, supported credential/attachment edits, bounded policy
-history for long-running schedules, and deployment acceptance. The renewal core
+membership integration, supported credential/attachment edits, and deployment
+acceptance. The renewal core
 fix is separately staged and validated on all five panels without activating it.
 Do not enable enrollment merely because the private tools or network canary pass.
+
+### Majority checkpoints and timer history (2026-11-07)
+
+- A returning member can verify the newest committed policy directly against its
+  pinned majority. The certificate cannot change the lifetime epoch, members,
+  authority or initial billing baseline. Reset generations and schedule boundaries
+  cannot regress; signatures from a minority cannot authorize a jump.
+- Local ledgers and accounting exchanges retain one majority certificate. Catch-up
+  applies the final generation once, settles lifetime meters, and keeps new usage
+  intact when older receipts are replayed. Authority-only policies still require
+  their original consecutive certificate chains.
+- The majority FSM keeps two recent policy values and one canonical timer receipt
+  per subscription. Old timer boundaries are rejected using the committed boundary
+  watermark. Reserved timer IDs cannot be reused for a manual quota change.
+- Manual request IDs retain compact, exact original results, including after
+  snapshot recovery. These durable idempotency receipts and the independent
+  anti-double-signing journal deliberately remain persistent; they are not deleted
+  to save space. This bounds periodic policy history, not every administrative
+  audit record for an unlimited number of manual requests.
+- Tests cover a 1,600-update catch-up exceeding the old message limit, a 2,000-period
+  snapshot with stable size, exact manual retries after compaction, forged minority
+  proofs, restored counter floors, and pending barriers. Full ledger/consensus/panel
+  regressions and three repeated race runs passed. Production enrollment is still
+  disabled; these tests do not imply that the remaining membership adapters exist.

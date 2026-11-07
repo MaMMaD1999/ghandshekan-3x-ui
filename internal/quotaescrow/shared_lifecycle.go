@@ -133,7 +133,11 @@ func VerifyPolicyVote(u PolicyUpdate, key, signature []byte) bool {
 }
 
 func VerifyPolicyUpdate(previous Policy, u PolicyUpdate) error {
-	if err := VerifyPolicyShape(previous, u); err != nil {
+	verifyShape := VerifyPolicyShape
+	if previous.ControlEpoch != "" && u.Next.Version > previous.Version && u.Next.Version-previous.Version > 1 {
+		verifyShape = VerifyPolicyCheckpointShape
+	}
+	if err := verifyShape(previous, u); err != nil {
 		return err
 	}
 	if previous.ControlEpoch == "" {
@@ -241,10 +245,12 @@ func (s *Store) PolicyUpdates(subscription string) ([]PolicyUpdate, error) {
 	if err := s.db.First(&record, "subscription = ?", subscription).Error; err != nil {
 		return nil, err
 	}
-	if _, err := decodeRecord(record); err != nil {
+	l, err := decodeRecord(record)
+	if err != nil {
 		return nil, err
 	}
-	return decodeUpdates(record.UpdatesJSON)
+	updates, err := decodeUpdates(record.UpdatesJSON)
+	return compactPolicyHistory(l.policy, updates), err
 }
 
 // NeedsSharedUpdates validates replayed certificates without taking the core
@@ -276,10 +282,26 @@ func missingUpdates(r Record, incoming []PolicyUpdate) ([]PolicyUpdate, error) {
 	p := l.policy
 	var missing []PolicyUpdate
 	for i, u := range incoming {
-		if i > 0 && u.Next.Version != incoming[i-1].Next.Version+1 {
+		if i > 0 && (u.Next.Version <= incoming[i-1].Next.Version || (p.ControlEpoch == "" && u.Next.Version != incoming[i-1].Next.Version+1)) {
 			return nil, errors.New("unordered policy updates")
 		}
 		if u.Next.Version <= l.policy.Version {
+			if p.ControlEpoch != "" {
+				// A compact majority proof does not retain every old payload.
+				// Authenticate older certificates against the immutable base, then
+				// ignore them. The current version must still match exactly.
+				var base Policy
+				if json.Unmarshal([]byte(r.BasePolicyJSON), &base) != nil {
+					return nil, errors.New("missing policy checkpoint base")
+				}
+				if err := VerifyPolicyUpdate(base, u); err != nil {
+					return nil, err
+				}
+				if u.Next.Version == l.policy.Version && (len(history) == 0 || !SamePolicyUpdate(history[len(history)-1], u)) {
+					return nil, errors.New("conflicting replayed policy")
+				}
+				continue
+			}
 			if u.Next.Version < 2 || u.Next.Version-2 >= uint64(len(history)) || !SamePolicyUpdate(history[u.Next.Version-2], u) {
 				return nil, errors.New("conflicting replayed policy")
 			}
@@ -295,7 +317,7 @@ func missingUpdates(r Record, incoming []PolicyUpdate) ([]PolicyUpdate, error) {
 		missing = append(missing, clone(u))
 		p = u.Next
 	}
-	return missing, nil
+	return compactPolicyHistory(p, missing), nil
 }
 
 // BeginSharedUpdates durably fences only this local member. Other members do
@@ -387,6 +409,7 @@ func (s *Store) CommitSharedUpdates(subscription, owner string, key ed25519.Priv
 		}
 		history, _ := decodeUpdates(r.UpdatesJSON)
 		history = append(history, pending...)
+		history = compactPolicyHistory(next, history)
 		p, _ := json.Marshal(next)
 		rows, _ := json.Marshal(l.Snapshot())
 		certs, _ := json.Marshal(history)
@@ -414,6 +437,9 @@ func validateSharedAdvance(previous, current Record, old, next *Ledger) error {
 	}
 	history, _ := decodeUpdates(current.UpdatesJSON)
 	oldHistory, _ := decodeUpdates(previous.UpdatesJSON)
+	if old.policy.ControlEpoch != "" {
+		return validateMajorityCheckpointAdvance(previous, current, old, next, history)
+	}
 	if len(history) < len(oldHistory) || !SamePolicyUpdates(history[:len(oldHistory)], oldHistory) {
 		return errors.New("shared policy history replaced")
 	}
@@ -429,6 +455,47 @@ func validateSharedAdvance(previous, current Record, old, next *Ledger) error {
 	}
 	if previous.FrozenFor != current.FrozenFor || previous.FreezeJSON != current.FreezeJSON {
 		return errors.New("strict freeze changed during shared lifecycle")
+	}
+	return dominates(next, old.Snapshot())
+}
+
+func validateMajorityCheckpointAdvance(previous, current Record, old, next *Ledger, history []PolicyUpdate) error {
+	if next.policy.Version == old.policy.Version {
+		if !reflect.DeepEqual(next.policy, old.policy) {
+			return errors.New("conflicting majority checkpoint at the same version")
+		}
+		oldHistory, _ := decodeUpdates(previous.UpdatesJSON)
+		if len(oldHistory) > 0 && (len(history) == 0 || !SamePolicyUpdate(oldHistory[len(oldHistory)-1], history[len(history)-1])) {
+			return errors.New("majority certificate replaced at the same version")
+		}
+	} else {
+		if len(history) == 0 {
+			return errors.New("majority advance lost its certificate")
+		}
+		if err := VerifyPolicyUpdate(old.policy, history[len(history)-1]); err != nil {
+			return err
+		}
+	}
+	pending, _ := decodeUpdates(previous.PendingUpdatesJSON)
+	if len(pending) > 0 {
+		last := pending[len(pending)-1]
+		if next.policy.Version < last.Next.Version {
+			newPending, _ := decodeUpdates(current.PendingUpdatesJSON)
+			if !SamePolicyUpdates(pending, newPending) || previous.PausedFor != current.PausedFor || previous.PausedEpoch != current.PausedEpoch {
+				return errors.New("pending majority checkpoint disappeared")
+			}
+		} else if next.policy.Version == last.Next.Version {
+			if len(history) == 0 || !SamePolicyUpdate(history[len(history)-1], last) {
+				return errors.New("committed checkpoint differs from pending work")
+			}
+		} else if err := VerifyPolicyUpdate(last.Next, history[len(history)-1]); err != nil {
+			return err
+		}
+	} else if previous.PausedFor != "" && (previous.PausedFor != current.PausedFor || previous.PausedEpoch != current.PausedEpoch) {
+		return errors.New("non-shared barrier disappeared")
+	}
+	if previous.FrozenFor != current.FrozenFor || previous.FreezeJSON != current.FreezeJSON {
+		return errors.New("strict freeze changed during majority catch-up")
 	}
 	return dominates(next, old.Snapshot())
 }

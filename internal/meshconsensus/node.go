@@ -239,6 +239,9 @@ func (n *Node) Close() {
 }
 
 func (n *Node) Apply(ctx context.Context, c Command) (Result, error) {
+	if err := validateTimerCommand(c); err != nil {
+		return Result{}, err
+	}
 	if c.Kind == "scheduled-reset" && (c.Patch == nil || c.Patch.ScheduledAt <= 0 || c.Patch.ScheduledAt > time.Now().Unix()) {
 		return Result{}, errors.New("scheduled reset boundary has not elapsed")
 	}
@@ -247,6 +250,25 @@ func (n *Node) Apply(ctx context.Context, c Command) (Result, error) {
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
+	}
+	// Cover an already-due timer before a new manual reset. Otherwise the
+	// scheduler could apply yesterday's/hour's overdue boundary immediately
+	// after the manual reset and erase freshly accumulated traffic a second time.
+	// The timer uses its canonical ID, so a concurrent scheduler commits it once.
+	// Retries of an old manual request must not introduce another operation.
+	if c.Kind == "reset" && !n.FSM.hasRequest(c.ID) {
+		if p, err := n.FSM.Policy(c.Subscription); err == nil && p.ResetSchedule != nil && !p.Disabled {
+			at, err := p.ResetSchedule.Due(time.Now(), p.ScheduledThrough)
+			if err != nil {
+				return Result{}, err
+			}
+			if at != 0 {
+				_, err := n.Apply(ctx, Command{ID: ScheduledOperationID(c.Subscription, at), Subscription: c.Subscription, Kind: "scheduled-reset", Patch: &PolicyPatch{ScheduledAt: at}})
+				if err != nil {
+					return Result{}, err
+				}
+			}
+		}
 	}
 	// A former leader retains its local Leader state briefly after isolation.
 	// Confirm a live majority before appending a new administrative command;

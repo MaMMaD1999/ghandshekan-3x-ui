@@ -85,35 +85,29 @@ func (q *MeshQuorum) certified(ctx context.Context, sub string, after, required 
 		case <-timer.C:
 		}
 	}
-	base, err := q.Node.FSM.Base(sub)
+	previous, head, err := q.Node.FSM.CommittedHead(sub)
 	if err != nil {
 		return nil, err
 	}
-	updates, err := q.Node.FSM.Updates(sub, 0)
-	if err != nil {
-		return nil, err
+	if head.Next.Version <= after {
+		return nil, nil
 	}
-	var out []quotaescrow.PolicyUpdate
-	for _, u := range updates {
-		if u.Next.Version > after {
-			hash := quotaescrow.PolicyHash(u.Next)
-			q.mu.Lock()
-			cert, ok := q.certificates[hash]
-			q.mu.Unlock()
-			if !ok {
-				cert, err = q.Node.Certify(ctx, base, u)
-				if err != nil {
-					return nil, err
-				}
-				q.mu.Lock()
-				q.certificates[hash] = cert
-				q.mu.Unlock()
-			}
-			out = append(out, cert)
+	q.mu.Lock()
+	cert, ok := q.certificates[sub]
+	q.mu.Unlock()
+	if !ok || !quotaescrow.SamePolicyUpdate(cert, head) {
+		cert, err = q.Node.Certify(ctx, previous, head)
+		if err != nil {
+			return nil, err
 		}
-		base = u.Next
+		q.mu.Lock()
+		// One certificate per subscription, not one forever per reset.
+		if old, exists := q.certificates[sub]; !exists || old.Next.Version <= cert.Next.Version {
+			q.certificates[sub] = cert
+		}
+		q.mu.Unlock()
 	}
-	return out, nil
+	return []quotaescrow.PolicyUpdate{cert}, nil
 }
 func (q *MeshQuorum) synchronize(ctx context.Context, sub string, required uint64) error {
 	l, err := quotaescrow.NewStore(q.Local.DB).Load(sub)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -68,10 +67,7 @@ func (q *MeshQuorum) scheduleDue(ctx context.Context, p quotaescrow.Policy, now 
 	if err != nil || at == 0 {
 		return false, err
 	}
-	id, err := meshOperationID(p.Subscription, "scheduled-reset", "schedule/"+strconv.FormatInt(at, 10))
-	if err != nil {
-		return false, err
-	}
+	id := meshconsensus.ScheduledOperationID(p.Subscription, at)
 	_, err = q.Node.Execute(ctx, meshconsensus.Command{ID: id, Subscription: p.Subscription, Kind: "scheduled-reset", Patch: &meshconsensus.PolicyPatch{ScheduledAt: at}})
 	return err == nil, err
 }

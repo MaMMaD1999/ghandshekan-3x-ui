@@ -26,7 +26,7 @@ func TestScheduledResetIsCommittedOnceAndRejectsFutureBoundaries(t *testing.T) {
 	if err != nil || at == 0 {
 		t.Fatal(at, err)
 	}
-	command := Command{ID: "canonical-hour", Subscription: p.Subscription, Kind: "scheduled-reset", Patch: &PolicyPatch{ScheduledAt: at}}
+	command := Command{ID: ScheduledOperationID(p.Subscription, at), Subscription: p.Subscription, Kind: "scheduled-reset", Patch: &PolicyPatch{ScheduledAt: at}}
 	a := execute(t, n, command)
 	b := execute(t, n, command)
 	if a.Update.Next.Version != 2 || b.Update.Next.Version != 2 || b.Update.Next.ResetGeneration != 2 || b.Update.Next.ScheduledThrough != at {
@@ -48,5 +48,27 @@ func TestScheduledResetIsCommittedOnceAndRejectsFutureBoundaries(t *testing.T) {
 	current, _ := n.FSM.Policy(p.Subscription)
 	if current.Version != 2 || current.ResetGeneration != 2 {
 		t.Fatal("rejected operation changed policy")
+	}
+}
+
+func TestManualResetCoversOverduePeriodBeforeClearingUsage(t *testing.T) {
+	c := cluster(t, 3)
+	n := c.leader(c.ids())
+	p := c.base()
+	p.ResetSchedule = &quotaescrow.ResetSchedule{Zone: "UTC", StartedAt: time.Now().Add(-3 * time.Hour).Unix(), Hourly: true}
+	r, _ := SignRegistration(p, c.authority)
+	execute(t, n, Command{ID: "register-manual-schedule", Registration: &r})
+	at, _ := p.ResetSchedule.Due(time.Now(), 0)
+	manual := Command{ID: "reset-before-timer-worker", Subscription: p.Subscription, Kind: "reset", Patch: &PolicyPatch{}}
+	result := execute(t, n, manual)
+	if result.Update.Next.Version != 3 || result.Update.Next.ResetGeneration != 3 || result.Update.Next.ScheduledThrough != at {
+		t.Fatal("overdue period remained after manual reset")
+	}
+	if due, err := p.ResetSchedule.Due(time.Now(), result.Update.Next.ScheduledThrough); err != nil || due != 0 {
+		t.Fatal("scheduler would clear new usage again", due, err)
+	}
+	replay := execute(t, n, manual)
+	if !quotaescrow.SamePolicyUpdate(*replay.Update, *result.Update) {
+		t.Fatal("manual retry applied another reset")
 	}
 }
