@@ -88,6 +88,7 @@ func allModels() []any {
 		&model.MeshBinding{},
 		&model.MeshControlState{},
 		&quotaescrow.Record{},
+		&quotaescrow.ControlJob{},
 		&quotaescrow.ClockState{},
 		&quotaescrow.Meter{},
 		&quotaescrow.EpochArchive{},

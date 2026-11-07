@@ -192,15 +192,20 @@ func normalizeInboundShareAddressColumns(tx *gorm.DB) error {
 func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
 	db := database.GetDB()
 	var inbounds []*model.Inbound
-	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Order("id ASC").Find(&inbounds).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	err := meshReportRead(db, func(tx *gorm.DB) error {
+		if err := tx.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Order("id ASC").Find(&inbounds).Error; err != nil {
+			return err
+		}
+		s.enrichClientStats(tx, inbounds)
+		if err := attachDetailedTraffic(tx, inbounds); err != nil {
+			return err
+		}
+		s.annotateFallbackParents(tx, inbounds)
+		return annotateMeshReports(tx, inbounds)
+	})
+	if err != nil {
 		return nil, err
 	}
-	s.enrichClientStats(db, inbounds)
-	if err := attachDetailedTraffic(db, inbounds); err != nil {
-		return nil, err
-	}
-	s.annotateFallbackParents(db, inbounds)
 	s.annotateLocalOriginGuid(inbounds)
 	return inbounds, nil
 }
@@ -558,12 +563,17 @@ func inboundMtprotoDomain(protocol string, settings string) string {
 func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 	db := database.GetDB()
 	var inbounds []*model.Inbound
-	err := db.Model(model.Inbound{}).Preload("ClientStats").Find(&inbounds).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-	s.enrichClientStats(db, inbounds)
-	if err := attachDetailedTraffic(db, inbounds); err != nil {
+	err := meshReportRead(db, func(tx *gorm.DB) error {
+		if err := tx.Model(model.Inbound{}).Preload("ClientStats").Find(&inbounds).Error; err != nil {
+			return err
+		}
+		s.enrichClientStats(tx, inbounds)
+		if err := attachDetailedTraffic(tx, inbounds); err != nil {
+			return err
+		}
+		return annotateMeshReports(tx, inbounds)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return inbounds, nil

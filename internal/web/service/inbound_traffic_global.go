@@ -43,6 +43,10 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 
 	return submitTrafficWrite(func() error {
 		db := database.GetDB()
+		scopes, err := meshReportScopes(db)
+		if err != nil {
+			return err
+		}
 		known := make([]string, 0, len(emails))
 		for _, batch := range chunkStrings(emails, sqlInChunk) {
 			var page []string
@@ -61,7 +65,7 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 		rows := make([]model.ClientGlobalTraffic, 0, len(known))
 		for _, email := range known {
 			t := byEmail[email]
-			if t == nil {
+			if t == nil || !meshReportAccepted(scopes, email, t.MeshEpoch) {
 				continue
 			}
 			rows = append(rows, model.ClientGlobalTraffic{
@@ -167,7 +171,16 @@ func overlayGlobalTrafficValues(db *gorm.DB, rows []xray.ClientTraffic) {
 // overlay so a mid-chain panel forwards the widest view it has seen, not just
 // its own aggregate.
 func (s *InboundService) GetNodeClientTraffics(nodeID int) ([]*xray.ClientTraffic, error) {
-	db := database.GetDB()
+	var out []*xray.ClientTraffic
+	err := meshReportRead(database.GetDB(), func(db *gorm.DB) error {
+		var err error
+		out, err = s.nodeClientTrafficReport(db, nodeID)
+		return err
+	})
+	return out, err
+}
+
+func (s *InboundService) nodeClientTrafficReport(db *gorm.DB, nodeID int) ([]*xray.ClientTraffic, error) {
 	emails, err := nodeHostedEmails(db, nodeID)
 	if err != nil {
 		return nil, err
@@ -184,6 +197,13 @@ func (s *InboundService) GetNodeClientTraffics(nodeID int) ([]*xray.ClientTraffi
 		out = append(out, page...)
 	}
 	overlayGlobalTraffic(db, out)
+	scopes, err := meshReportScopes(db)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range out {
+		row.MeshEpoch = scopes[row.Email].Epoch
+	}
 	return out, nil
 }
 

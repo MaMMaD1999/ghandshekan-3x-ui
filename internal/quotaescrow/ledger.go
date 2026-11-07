@@ -20,6 +20,11 @@ var ErrConflict = errors.New("conflicting owner sequence")
 // A new epoch is NOT an automatic right to reissue outstanding grants: old
 // members must first be fenced. A disconnected member's grant cannot be reclaimed.
 type Policy struct {
+	// Mode is explicit and authenticated. Empty means reserved spending rights.
+	// "shared" permits each member to use the remaining quota in its latest
+	// signed view. During a partition the combined actual usage CAN exceed the
+	// limit; reconciliation records those real bytes once, never as transfers.
+	Mode         string `json:"mode,omitempty"`
 	Subscription string `json:"subscription"`
 	Epoch        string `json:"epoch"`
 	Limit        int64  `json:"limit"`
@@ -66,6 +71,9 @@ func add(a, b int64) (int64, error) {
 	return a + b, nil
 }
 func New(p Policy) (*Ledger, error) {
+	if p.Mode != "" && p.Mode != "shared" {
+		return nil, errors.New("unknown quota availability mode")
+	}
 	if p.Subscription == "" || p.Epoch == "" || p.Limit < 0 || p.AlreadyBilled < 0 || p.ExpiresAt < 0 || len(p.Grants) == 0 || len(p.Keys) != len(p.Grants) {
 		return nil, errors.New("invalid policy")
 	}
@@ -81,6 +89,9 @@ func New(p Policy) (*Ledger, error) {
 		}
 	}
 	remaining := p.Limit - min(p.Limit, p.AlreadyBilled)
+	if p.Mode == "shared" && total != 0 {
+		return nil, errors.New("shared mode does not allocate reserved rights")
+	}
 	if total > remaining {
 		return nil, errors.New("grants exceed subscription limit")
 	}
@@ -132,6 +143,16 @@ func (l *Ledger) Available(owner string, now int64) (int64, error) {
 	if l.policy.ExpiresAt > 0 && now >= l.policy.ExpiresAt {
 		return 0, nil
 	}
+	if l.policy.Mode == "shared" {
+		if _, exists := l.policy.Keys[owner]; !exists {
+			return 0, errors.New("unknown owner")
+		}
+		used, err := l.Billed()
+		if err != nil {
+			return 0, err
+		}
+		return l.policy.Limit - min(l.policy.Limit, used), nil
+	}
 	remaining, err := l.balance(owner)
 	if err != nil {
 		return 0, err
@@ -175,7 +196,13 @@ func (l *Ledger) Merge(updates []SignedRow) error {
 		if r.Sequence == 0 || r.Spent < 0 || r.Used < r.Spent {
 			return errors.New("invalid counters")
 		}
+		if l.policy.Mode == "shared" && r.Spent != 0 {
+			return errors.New("shared usage cannot spend escrow rights")
+		}
 		for dest, v := range r.Sent {
+			if l.policy.Mode == "shared" && v != 0 {
+				return errors.New("shared usage cannot transfer escrow rights")
+			}
 			if _, ok := l.policy.Keys[dest]; !ok || dest == r.Owner || v < 0 {
 				return errors.New("invalid transfer")
 			}
@@ -231,6 +258,16 @@ func (l *Ledger) Propose(owner string, key ed25519.PrivateKey, amount int64, to 
 	}
 	if amount > available {
 		return SignedRow{}, ErrInsufficient
+	}
+	if l.policy.Mode == "shared" {
+		if to != "" {
+			return SignedRow{}, errors.New("shared mode has no transferable reserved rights")
+		}
+		used, err := add(l.own(owner).Used, amount)
+		if err != nil {
+			return SignedRow{}, err
+		}
+		return l.Observe(owner, key, used)
 	}
 	r := l.own(owner)
 	if r.Sequence == math.MaxUint64 {

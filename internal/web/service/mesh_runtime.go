@@ -124,9 +124,11 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 	// login, bearer credential or unrestricted proxy endpoint is mounted here.
 	capacity := make(chan struct{}, 16)
 	handler := worker.Handler()
-	control := (&MeshControl{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Authority: ed25519.PublicKey(c.Authority), Enforcer: r.enforcer, Drain: core.DrainMeshSessions, Flush: r.flush, Checkpoint: check}).Handler()
+	controlAdapter := &MeshControl{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Authority: ed25519.PublicKey(c.Authority), Enforcer: r.enforcer, Drain: core.DrainMeshSessions, Flush: r.flush, Checkpoint: check}
+	control := controlAdapter.Handler()
+	inspection := controlAdapter.InspectionHandler()
 	r.server = &http.Server{ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/exchange" && req.URL.Path != "/control" {
+		if req.URL.Path != "/exchange" && req.URL.Path != "/control" && req.URL.Path != "/inspect" {
 			http.NotFound(w, req)
 			return
 		}
@@ -139,6 +141,8 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 		}
 		if req.URL.Path == "/control" {
 			control.ServeHTTP(w, req)
+		} else if req.URL.Path == "/inspect" {
+			inspection.ServeHTTP(w, req)
 		} else {
 			handler.ServeHTTP(w, req)
 		}

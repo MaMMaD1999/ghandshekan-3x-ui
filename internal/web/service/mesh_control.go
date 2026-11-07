@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -35,6 +36,10 @@ type MeshControl struct {
 	Checkpoint func() error
 }
 
+func (c *MeshControl) transaction(fn func(*gorm.DB) error) error {
+	return submitTrafficWrite(func() error { return c.DB.Transaction(fn) })
+}
+
 // MeshAliasFingerprint deliberately includes protocol credentials and exact
 // local associations. Shared nodes serving two masters cannot silently claim
 // somebody else's email. Secrets stay server-side; only their digest is sent.
@@ -44,20 +49,33 @@ func MeshAliasFingerprint(db *gorm.DB, email string) (string, error) {
 		return "", err
 	}
 	var inbounds []model.Inbound
-	if err := db.Table("inbounds").Select("inbounds.*").Joins("JOIN client_inbounds ON client_inbounds.inbound_id = inbounds.id").Where("client_inbounds.client_id = ? AND inbounds.node_id IS NULL", client.Id).Order("inbounds.id").Find(&inbounds).Error; err != nil {
+	if err := db.Table("inbounds").Select("inbounds.*").Joins("JOIN client_inbounds ON client_inbounds.inbound_id = inbounds.id").Where("client_inbounds.client_id = ?", client.Id).Order("inbounds.id").Find(&inbounds).Error; err != nil {
 		return "", err
 	}
 	if len(inbounds) == 0 {
-		return "", errors.New("alias has no local inbound")
+		return "", errors.New("alias has no inbound")
 	}
 	type attachment struct {
 		ID         int
 		Tag        string
 		Protocol   model.Protocol
 		Credential map[string]any
+		Node       *int
+		NodeOwner  string
 	}
 	attachments := make([]attachment, 0, len(inbounds))
 	for _, inbound := range inbounds {
+		nodeOwner := ""
+		if inbound.NodeID != nil {
+			var node model.Node
+			if err := db.Select("guid").First(&node, "id = ?", *inbound.NodeID).Error; err != nil {
+				return "", err
+			}
+			if node.Guid == "" {
+				return "", errors.New("remote inbound has no stable panel identity")
+			}
+			nodeOwner = node.Guid
+		}
 		if inbound.Protocol != "vless" && inbound.Protocol != "vmess" && inbound.Protocol != "trojan" {
 			return "", errors.New("protocol has not passed mesh drain acceptance")
 		}
@@ -85,7 +103,7 @@ func MeshAliasFingerprint(db *gorm.DB, email string) (string, error) {
 		if credential == nil {
 			return "", errors.New("runtime alias missing")
 		}
-		attachments = append(attachments, attachment{inbound.Id, inbound.Tag, inbound.Protocol, credential})
+		attachments = append(attachments, attachment{inbound.Id, inbound.Tag, inbound.Protocol, credential, inbound.NodeID, nodeOwner})
 	}
 	encoded, _ := json.Marshal(struct {
 		Email, SubID, UUID, Password, Auth string
@@ -201,7 +219,7 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 	encoded, _ := json.Marshal(plan)
 	placeholder, _ := json.Marshal(quotaescrow.ControlReceipt{Owner: c.Owner})
 	var state model.MeshControlState
-	err = c.DB.Transaction(func(tx *gorm.DB) error {
+	err = c.transaction(func(tx *gorm.DB) error {
 		err := tx.First(&state, "id = ?", plan.ID).Error
 		if err == nil {
 			if state.PlanHash != quotaescrow.ControlPlanHash(plan) {
@@ -228,6 +246,11 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 		if plan.Kind == "enroll" {
 			if len(bindings) > 0 {
 				return errors.New("alias is already enrolled")
+			}
+			// Reject known ambiguous legacy state before fencing a healthy user.
+			// The signed snapshot is captured again after the final drain.
+			if _, err := CaptureMeshHistorical(tx, c.Owner, emails); err != nil {
+				return err
 			}
 			var count int64
 			if err := tx.Model(&quotaescrow.Record{}).Where("subscription = ?", plan.Subscription).Count(&count).Error; err != nil {
@@ -294,8 +317,15 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 		return empty, err
 	}
 	receipt := quotaescrow.ControlReceipt{PlanHash: state.PlanHash, Owner: c.Owner, Local: map[string]int64{}, Sources: map[string]string{}}
-	err = c.DB.Transaction(func(tx *gorm.DB) error {
+	err = c.transaction(func(tx *gorm.DB) error {
 		store := quotaescrow.NewStore(tx)
+		if plan.Kind == "enroll" {
+			historical, err := CaptureMeshHistorical(tx, c.Owner, emails)
+			if err != nil {
+				return err
+			}
+			receipt.Historical = &historical
+		}
 		for _, email := range emails {
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.LocalUsage{Email: email, Source: rand.Text()}).Error; err != nil {
 				return err
@@ -372,10 +402,21 @@ func (c *MeshControl) commit(ctx context.Context, command quotaescrow.ControlCom
 			proofs = append(proofs, *receipt.Freeze)
 		}
 	}
+	if len(plan.AccountingRoots) != 0 {
+		billed, err := quotaescrow.PreparedHistoricalUsage(plan, command.Receipts)
+		if err != nil {
+			return result, err
+		}
+		if billed != p.AlreadyBilled {
+			return result, errors.New("enrollment does not preserve frozen historical usage")
+		}
+	}
+	canonicalReceipts := slices.Clone(command.Receipts)
+	slices.SortFunc(canonicalReceipts, func(a, b quotaescrow.ControlReceipt) int { return strings.Compare(a.Owner, b.Owner) })
 	body, _ := json.Marshal(struct {
 		Policy   quotaescrow.Policy
 		Receipts []quotaescrow.ControlReceipt
-	}{p, command.Receipts})
+	}{p, canonicalReceipts})
 	digest := sha256.Sum256(body)
 	commitHash := hex.EncodeToString(digest[:])
 	if state.Stage == 2 {
@@ -399,7 +440,7 @@ func (c *MeshControl) commit(ctx context.Context, command quotaescrow.ControlCom
 	if err := c.Flush(ctx); err != nil {
 		return result, err
 	}
-	err = c.DB.Transaction(func(tx *gorm.DB) error {
+	err = c.transaction(func(tx *gorm.DB) error {
 		meters := make([]quotaescrow.Meter, 0, len(emails))
 		for _, email := range emails {
 			var local model.LocalUsage

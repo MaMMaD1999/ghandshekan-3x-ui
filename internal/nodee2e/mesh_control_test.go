@@ -2,6 +2,7 @@ package nodee2e
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -89,6 +90,18 @@ func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
 	}
 	defer controlHTTP.CloseIdleConnections()
 	plan := quotaescrow.ControlPlan{ID: "live-enroll", Subscription: "live/subscriber", Kind: "enroll", NextEpoch: "first", Claims: map[string][]quotaescrow.AliasClaim{owner: {{Email: "control-user", Fingerprint: fingerprint}}}}
+	now := time.Now().Unix()
+	inspection, err := quotaescrow.SignInspection(quotaescrow.Inspection{Owner: owner, Nonce: rand.Text(), Emails: []string{"control-user"}, IssuedAt: now - 1, ValidUntil: now + 60}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateClient := quotaescrow.ControlClient{HTTP: controlHTTP, Peers: config.Peers, Keys: map[string][]byte{owner: pub}}
+	inventory, err := privateClient.Inspect(context.Background(), owner, inspection)
+	if err != nil || len(inventory.Aliases) != 1 || inventory.Aliases[0].Claim.Fingerprint != fingerprint {
+		t.Fatal("real private inspection failed", err)
+	}
+	plan.Claims[owner] = []quotaescrow.AliasClaim{inventory.Aliases[0].Claim}
+	plan.AccountingRoots = []quotaescrow.LegacyRoot{{Owner: owner, Alias: "control-user"}}
 	request := func(operation string, policy *quotaescrow.Policy, receipts []quotaescrow.ControlReceipt) quotaescrow.ControlReceipt {
 		t.Helper()
 		now := time.Now().Unix()
@@ -160,6 +173,7 @@ func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
 	policy := quotaescrow.Policy{Subscription: plan.Subscription, Epoch: plan.NextEpoch, Limit: 1 << 30, Grants: map[string]int64{owner: 1 << 30}, Keys: map[string][]byte{owner: pub}}
 	for _, kind := range []string{"enroll", "renew", "reset"} {
 		if kind != "enroll" {
+			plan.AccountingRoots = nil
 			plan.ID = "live-" + kind
 			plan.Kind = kind
 			plan.Epoch = policy.Epoch
@@ -176,7 +190,10 @@ func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
 		eventually(t, time.Second, "unrelated user survives lifecycle barrier", func() (bool, string) { return otherBytes.bytes.Load() > before, "no bytes" })
 		policy.Epoch = plan.NextEpoch
 		if kind == "enroll" {
-			policy.AlreadyBilled = receipt.Local["control-user"]
+			policy.AlreadyBilled, err = quotaescrow.PreparedHistoricalUsage(plan, []quotaescrow.ControlReceipt{receipt})
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		if kind == "renew" {
 			withDB(func() {

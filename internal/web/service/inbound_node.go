@@ -539,6 +539,21 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 	}
 	db := database.GetDB()
 	now := time.Now().UnixMilli()
+	meshScopes, scopeErr := meshReportScopes(db)
+	if scopeErr != nil {
+		return false, scopeErr
+	}
+	// Work on a private snapshot: filtering an old epoch must not rewrite a
+	// runtime/cache object shared by another caller.
+	copySnapshot := *snap
+	copySnapshot.Inbounds = make([]*model.Inbound, len(snap.Inbounds))
+	for i, inbound := range snap.Inbounds {
+		if inbound != nil {
+			copied := *inbound
+			copySnapshot.Inbounds[i] = &copied
+		}
+	}
+	snap = &copySnapshot
 
 	// originGuidFor attributes a synced inbound to the panel that physically
 	// hosts it. A node's OWN inbounds report either an empty origin or — on
@@ -661,6 +676,9 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		for i := range snapIb.ClientStats {
 			email := snapIb.ClientStats[i].Email
 			snapEmailsAll[email] = struct{}{}
+			if !meshReportAccepted(meshScopes, email, snapIb.ClientStats[i].MeshEpoch) {
+				continue
+			}
 			cur := nodeEmailTotals[email]
 			if snapIb.ClientStats[i].Up > cur.Up {
 				cur.Up = snapIb.ClientStats[i].Up
@@ -801,6 +819,11 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				continue
 			}
 			reportedRemoteTagConflict.Delete(fmt.Sprintf("%d:%s", nodeID, snapIb.Tag))
+			filteredSettings, preserveErr := preserveMeshSettings(`{"clients":[]}`, snapIb.Settings, meshScopes)
+			if preserveErr != nil {
+				return false, preserveErr
+			}
+			snapIb.Settings = filteredSettings
 			newIb := model.Inbound{
 				UserId:               defaultUserId,
 				NodeID:               &nodeID,
@@ -853,7 +876,11 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		// Adopting the node's settings verbatim would re-add a client the master
 		// deleted moments ago if this snapshot was fetched before the deletion
 		// push landed — filter just-deleted emails out while their tombstone lives.
-		adoptedSettings := snapIb.Settings
+		adoptedSettings, preserveErr := preserveMeshSettings(c.Settings, snapIb.Settings, meshScopes)
+		if preserveErr != nil {
+			return false, preserveErr
+		}
+		snapIb.Settings = adoptedSettings
 		if stripped, changed := stripTombstonedClients(adoptedSettings); changed {
 			adoptedSettings = stripped
 		}
@@ -967,6 +994,22 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		if unmanagedTag(c.Tag) {
 			continue
 		}
+		var attached []string
+		if len(meshScopes) > 0 {
+			if err := tx.Table("clients c").Select("c.email").Joins("JOIN client_inbounds ci ON ci.client_id = c.id").Where("ci.inbound_id = ?", c.Id).Pluck("c.email", &attached).Error; err != nil {
+				return false, err
+			}
+		}
+		protected := false
+		for _, email := range attached {
+			if _, ok := meshScopes[email]; ok {
+				protected = true
+				break
+			}
+		}
+		if protected {
+			continue
+		}
 		// This drops the central inbound and its unreported clients' history, so say
 		// so: silent removal is indistinguishable from an inbound never arriving.
 		logger.Warningf("setRemoteTraffic: node %d no longer reports inbound %q (id %d, port %d) — removing it centrally", nodeID, c.Tag, c.Id, c.Port)
@@ -1068,13 +1111,17 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				continue
 			}
 			snapEmails[cs.Email] = struct{}{}
+			if !meshReportAccepted(meshScopes, cs.Email, cs.MeshEpoch) {
+				continue
+			}
 
 			// Node-wide total, not this inbound's possibly-stale copy (#5274).
 			canon := nodeEmailTotals[cs.Email]
 			// Until the node applies a reset it owes, its verdict rests on the
 			// pre-reset counters: only usage may move for this client.
 			_, owed := owedResets[cs.Email]
-			clientFrozen := lifecycleFrozen || owed
+			_, meshManaged := meshScopes[cs.Email]
+			clientFrozen := lifecycleFrozen || owed || meshManaged
 
 			base, seen := nodeBaselines[cs.Email]
 			var deltaUp, deltaDown int64
@@ -1085,6 +1132,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if deltaDown = canon.Down - base.Down; deltaDown < 0 {
 					deltaDown = 0
 				}
+			} else if meshManaged {
+				// A committed mesh reset removes the old epoch's baseline. The
+				// first matching NEW-epoch report is real consumption from zero.
+				deltaUp, deltaDown = canon.Up, canon.Down
 			}
 
 			if _, rowExists := statByEmail[cs.Email]; !rowExists {
@@ -1229,6 +1280,9 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		}
 
 		for k, existing := range centralCS {
+			if _, managed := meshScopes[k.email]; managed {
+				continue
+			}
 			if dirty {
 				continue
 			}

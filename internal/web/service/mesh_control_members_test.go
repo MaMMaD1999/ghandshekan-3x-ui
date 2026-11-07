@@ -30,6 +30,9 @@ func TestMeshControlTwoMembersCannotRenewAroundMissingProof(t *testing.T) {
 		if _, err := controlRequest(t, node, authority, plan, "commit", &policy, prepared); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := controlRequest(t, node, authority, plan, "commit", &policy, []quotaescrow.ControlReceipt{prepared[1], prepared[0]}); err != nil {
+			t.Fatal("receipt order changed idempotency", err)
+		}
 	}
 	for i, node := range []*MeshControl{a, b} {
 		used := []int64{120, 80}[i]

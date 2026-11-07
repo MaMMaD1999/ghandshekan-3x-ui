@@ -64,6 +64,35 @@ func meshRuntimeFixture(t *testing.T, owner string) (string, *MeshConfig) {
 	return path, c
 }
 
+func TestMeshRuntimeRejectsUnpinnedOrReusedMemberKey(t *testing.T) {
+	file, c := meshRuntimeFixture(t, "local")
+	c.PeerKeys = map[string][]byte{"local": ed25519.PrivateKey(c.PrivateKey).Public().(ed25519.PublicKey)}
+	save := func() {
+		body, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save()
+	if _, _, err := LoadMeshConfig(file); err != nil {
+		t.Fatal(err)
+	}
+	wrong, _, _ := ed25519.GenerateKey(rand.Reader)
+	c.PeerKeys["local"] = wrong
+	save()
+	if _, _, err := LoadMeshConfig(file); err == nil {
+		t.Fatal("accepted a local key outside the pinned registry")
+	}
+	c.PeerKeys["local"] = c.Authority
+	save()
+	if _, _, err := LoadMeshConfig(file); err == nil {
+		t.Fatal("reused enrollment authority as member key")
+	}
+}
+
 func TestMeshRuntimeMutualTLSAndStop(t *testing.T) {
 	setupConflictDB(t)
 	owner, err := new(SettingService).GetPanelGuid()

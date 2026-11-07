@@ -215,7 +215,14 @@ func attachDetailedTraffic(db *gorm.DB, inbounds []*model.Inbound) error {
 // Mirrored details are reporting data only: upstream's normal shared-client
 // merge already receives billed totals. Never apply the coefficient here again.
 func mirrorDetailedTraffic(tx *gorm.DB, remote, central *model.Inbound, origin string) error {
+	scopes, err := meshReportScopes(tx)
+	if err != nil {
+		return err
+	}
 	for _, r := range remote.DetailedTraffic {
+		if !meshReportAccepted(scopes, r.Email, r.MeshEpoch) {
+			continue
+		}
 		if r.Email == "" || r.RawUp < 0 || r.RawDown < 0 || r.BilledUp < 0 || r.BilledDown < 0 {
 			return fmt.Errorf("invalid remote detailed traffic")
 		}

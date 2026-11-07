@@ -28,6 +28,7 @@ type MeshConfig struct {
 	CAFile     string            `json:"caFile"`
 	StateDir   string            `json:"stateDir"`
 	Peers      map[string]string `json:"peers"`
+	PeerKeys   map[string][]byte `json:"peerKeys,omitempty"`
 }
 
 func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
@@ -111,6 +112,21 @@ func (c *MeshConfig) validate() error {
 		u, e := url.Parse(address)
 		if id == "" || len(id) > 128 || e != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/exchange" {
 			return errors.New("mesh peers require explicit HTTPS exchange endpoints")
+		}
+	}
+	if len(c.PeerKeys) != 0 {
+		if len(c.PeerKeys) != len(c.Peers) {
+			return errors.New("incomplete pinned member keys")
+		}
+		seen := map[string]bool{}
+		for owner, key := range c.PeerKeys {
+			if c.Peers[owner] == "" || len(key) != ed25519.PublicKeySize || bytes.Equal(key, c.Authority) || seen[string(key)] {
+				return errors.New("invalid pinned member keys")
+			}
+			seen[string(key)] = true
+		}
+		if !bytes.Equal(c.PeerKeys[c.Owner], k.Public().(ed25519.PublicKey)) {
+			return errors.New("local usage key is not pinned")
 		}
 	}
 	for _, p := range []string{c.CertFile, c.KeyFile, c.CAFile, c.StateDir} {

@@ -1,7 +1,8 @@
 # Quota escrow — staged, not a live panel capability
 
-This branch includes local meter and admission adapters, but the complete
-runtime limiter, authenticated enrollment and node API are not installed.
+The runtime limiter is deployed, but production subscription enrollment remains
+disabled. This branch includes a tested private control adapter and durable
+coordinator; the panel lifecycle adapters and production acceptance are unfinished.
 Do not advertise autonomous quota enforcement based on the presence of these
 files, the panel version, or the existing custom-accounting capability.
 
@@ -289,3 +290,49 @@ authoritative historical-usage cutover, all UI/API/bulk/scheduled lifecycle
 hooks, protection against stale legacy node snapshots during cutover, shared
 application-alias policies, provisioning and network-partition acceptance across
 real members. The mounted private adapter is not a claim that these are done.
+
+Durable coordinator and historical cutover verified on 2026-11-07:
+
+- The coordinator persists each prepared receipt, the exact next policy and
+  each acknowledged commit. A process restart or lost commit response resumes
+  the same operation; a retry never clears traffic consumed in the new epoch.
+- Enrollment receipts include signed aggregate counters and imported child
+  baselines captured after draining. The signed plan identifies authoritative
+  roots. Folding the frozen tree counts unsynchronized child traffic once and
+  refuses missing/cyclic/duplicated members, regressed counters, pending legacy
+  resets and unstable child configuration. This does not reconstruct an unknown
+  historical reset; legacy reconciliation must complete before enrollment.
+- Control barrier/commit writes share the existing serialized traffic writer.
+  Node traffic and consumption-card snapshots carry an accounting epoch from a
+  consistent read transaction. Old/unmarked snapshots cannot restore pre-reset
+  counters, old cards or global overlays. Matching new-epoch usage starts from
+  zero and duplicate reports remain idempotent. Legacy client settings cannot
+  overwrite managed credentials or remove managed membership during a poll.
+- Coordinator recovery, frozen history, stale snapshots, settings preservation
+  and full ledger/service/job/web/controller regression tests passed.
+
+These are tested source changes, not an enrollment rollout. Public lifecycle
+hooks, automatic renewal/reset and real multi-host outage acceptance remain
+required. Production subscription enrollment remains disabled.
+
+Provisioning and availability-mode acceptance on 2026-11-07:
+
+- The operator tool creates separate authority, usage-signing and mutual-TLS
+  keys in a new private directory and refuses to overwrite an existing bundle.
+  Every member pins the provisioned usage keys. The authority private key and CA
+  private key are not included in member configurations or browser responses.
+- The private, authority-signed inspection endpoint returns bounded client
+  fingerprints and accounting topology, never credentials. Responses bind the
+  request nonce and member identity. Redirects and unpinned endpoints are refused.
+- A master with remote inbounds only can participate in history/control with
+  zero traffic allocation. Its imported child traffic is folded exactly once.
+- Optional signed policy mode `shared` admits traffic up to the last known
+  global remainder on each isolated member. Reservations/transfers are disabled
+  in this mode. Concurrent isolated members can exceed the subscription ceiling;
+  reconciliation records all actual usage once and closes exhausted admission.
+  The default escrow mode retains its stricter independent spending grants.
+- Full ledger, service, job, web/controller and identity-generator suites pass.
+  Actual panel/core tests pass for signed inspection, enrollment, renewal/reset
+  while downloading, and offline-master cutoff in both policy modes. An unrelated
+  stream survives and the core instance is unchanged. Control transport and shared
+  ledger race tests pass. These tests run isolated processes, not live subscribers.

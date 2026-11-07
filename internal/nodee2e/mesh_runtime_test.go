@@ -62,6 +62,14 @@ func installTestMeshIdentity(t *testing.T, p *panel, owner string, key ed25519.P
 // The peer endpoint is unreachable throughout. This uses the installed panel
 // supervisor and scheduled meter, never calls the runtime gate from the test.
 func TestMeshRuntimeCutsRealStreamWithMasterOffline(t *testing.T) {
+	testMeshRuntimeOfflineCutoff(t, "")
+}
+
+func TestMeshSharedQuotaCutsRealStreamWithMasterOffline(t *testing.T) {
+	testMeshRuntimeOfflineCutoff(t, "shared")
+}
+
+func testMeshRuntimeOfflineCutoff(t *testing.T, mode string) {
 	core := os.Getenv("MESH_TEST_CORE")
 	if core == "" {
 		t.Skip("MESH_TEST_CORE not set")
@@ -111,6 +119,11 @@ func TestMeshRuntimeCutsRealStreamWithMasterOffline(t *testing.T) {
 		remote, remotePrivate, _ := ed25519.GenerateKey(rand.Reader)
 		localOwner, remoteKey = owner, remotePrivate
 		policy := quotaescrow.Policy{Subscription: "mesh-sub", Epoch: "one", Limit: 128 << 20, ExpiresAt: time.Now().Unix() + 3600, Grants: map[string]int64{owner: 1 << 20, "offline-master": 127 << 20}, Keys: map[string][]byte{owner: pub, "offline-master": remote}}
+		if mode == "shared" {
+			policy.Mode = mode
+			policy.Limit = 1 << 20
+			policy.Grants[owner], policy.Grants["offline-master"] = 0, 0
+		}
 		if err := service.ActivateMeshMeters(database.GetDB(), policy, owner, []string{"mesh-limited"}); err != nil {
 			t.Fatal(err)
 		}
@@ -206,6 +219,23 @@ func TestMeshRuntimeCutsRealStreamWithMasterOffline(t *testing.T) {
 		}
 		return otherBytes.bytes.Load() > baseline, "no bytes"
 	})
+	if mode == "shared" {
+		withDB(func() {
+			ledger, err := quotaescrow.NewStore(database.GetDB()).Load("mesh-sub")
+			if err != nil {
+				t.Fatal(err)
+			}
+			billed, err := ledger.Billed()
+			if err != nil || billed < 1<<20 {
+				t.Fatal("shared cutoff did not retain real metered traffic", billed, err)
+			}
+			remaining, err := ledger.Available(localOwner, time.Now().Unix())
+			if err != nil || remaining != 0 {
+				t.Fatal("shared quota remained open", remaining, err)
+			}
+		})
+		return
+	}
 	// A config refresh while exhausted can remove credentials from the core.
 	// Receiving legitimate peer credit must restore them without a whole restart.
 	p.call(http.MethodPost, "/panel/api/server/reconcileXrayService", nil)

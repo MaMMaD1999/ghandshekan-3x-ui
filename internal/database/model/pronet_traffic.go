@@ -3,6 +3,7 @@ package model
 // Lifetime counters, deliberately independent of subscription quota resets.
 // An empty OriginGuid is local; mirrors use the physical node's stable GUID.
 type InboundTrafficDetail struct {
+	MeshEpoch            string `json:"meshEpoch,omitempty" gorm:"-"`
 	InboundName          string `json:"inboundName"`
 	RateParts            int64  `json:"rateParts" gorm:"primaryKey"`
 	OriginGuid           string `json:"originGuid" gorm:"primaryKey"`

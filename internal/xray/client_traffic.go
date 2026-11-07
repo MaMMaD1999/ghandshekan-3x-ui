@@ -3,6 +3,7 @@ package xray
 // ClientTraffic represents traffic statistics and limits for a specific client.
 // It tracks upload/download usage, expiry times, and online status for inbound clients.
 type ClientTraffic struct {
+	MeshEpoch     string `json:"meshEpoch,omitempty" gorm:"-"`
 	InboundTag    string `json:"-" gorm:"-"`
 	Id            int    `json:"id" form:"id" gorm:"primaryKey;autoIncrement" example:"14825"`
 	InboundId     int    `json:"inboundId" form:"inboundId" gorm:"index:idx_client_traffics_inbound" example:"1"`

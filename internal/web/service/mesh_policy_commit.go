@@ -18,6 +18,10 @@ func commitMeshClientPolicy(tx *gorm.DB, p quotaescrow.Policy, kind string, emai
 	if p.ExpiresAt > math.MaxInt64/1000 {
 		return errors.New("expiry exceeds panel timestamp range")
 	}
+	// A pushed display total from an older epoch cannot survive any cutover.
+	if err := clearGlobalTraffic(tx, emails...); err != nil {
+		return err
+	}
 	if kind == "reset" {
 		if err := resetTrafficReports(tx, emails...); err != nil {
 			return err

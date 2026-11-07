@@ -19,12 +19,13 @@ type AliasClaim struct {
 // Timing is on the signed envelope so a retry may renew its authentication
 // window without changing or abandoning a durable barrier.
 type ControlPlan struct {
-	ID           string                  `json:"id"`
-	Subscription string                  `json:"subscription"`
-	Kind         string                  `json:"kind"`
-	Epoch        string                  `json:"epoch"`
-	NextEpoch    string                  `json:"nextEpoch"`
-	Claims       map[string][]AliasClaim `json:"claims"`
+	ID              string                  `json:"id"`
+	Subscription    string                  `json:"subscription"`
+	Kind            string                  `json:"kind"`
+	Epoch           string                  `json:"epoch"`
+	NextEpoch       string                  `json:"nextEpoch"`
+	Claims          map[string][]AliasClaim `json:"claims"`
+	AccountingRoots []LegacyRoot            `json:"accountingRoots,omitempty"`
 }
 
 type ControlCommand struct {
@@ -42,12 +43,13 @@ type SignedControl struct {
 }
 
 type ControlReceipt struct {
-	PlanHash  string            `json:"planHash"`
-	Owner     string            `json:"owner"`
-	Local     map[string]int64  `json:"local"`
-	Sources   map[string]string `json:"sources"`
-	Freeze    *FreezeProof      `json:"freeze,omitempty"`
-	Signature []byte            `json:"signature"`
+	PlanHash   string            `json:"planHash"`
+	Owner      string            `json:"owner"`
+	Local      map[string]int64  `json:"local"`
+	Sources    map[string]string `json:"sources"`
+	Freeze     *FreezeProof      `json:"freeze,omitempty"`
+	Historical *LegacySnapshot   `json:"historical,omitempty"`
+	Signature  []byte            `json:"signature"`
 }
 
 func ControlPlanHash(plan ControlPlan) string {
@@ -57,7 +59,7 @@ func ControlPlanHash(plan ControlPlan) string {
 }
 
 func (p ControlPlan) Validate() error {
-	if p.ID == "" || len(p.ID) > 128 || p.Subscription == "" || len(p.Subscription) > 512 || p.NextEpoch == "" || p.NextEpoch == p.Epoch || len(p.Claims) == 0 || len(p.Claims) > 256 {
+	if p.ID == "" || len(p.ID) > 128 || p.Subscription == "" || len(p.Subscription) > 512 || p.NextEpoch == "" || len(p.NextEpoch) > 128 || len(p.Epoch) > 128 || p.NextEpoch == p.Epoch || len(p.Claims) == 0 || len(p.Claims) > 256 {
 		return errors.New("invalid control scope")
 	}
 	if (p.Kind == "enroll" && p.Epoch != "") || (p.Kind != "enroll" && p.Kind != "renew" && p.Kind != "reset") || (p.Kind != "enroll" && p.Epoch == "") {
@@ -80,6 +82,22 @@ func (p ControlPlan) Validate() error {
 	}
 	if n > 100000 {
 		return errors.New("too many aliases")
+	}
+	if len(p.AccountingRoots) != 0 {
+		if p.Kind != "enroll" || len(p.AccountingRoots) > n {
+			return errors.New("invalid historical roots")
+		}
+		seen := map[LegacyRoot]bool{}
+		for _, root := range p.AccountingRoots {
+			found := false
+			for _, claim := range p.Claims[root.Owner] {
+				found = found || claim.Email == root.Alias
+			}
+			if !found || seen[root] {
+				return errors.New("historical root outside enrollment")
+			}
+			seen[root] = true
+		}
 	}
 	return nil
 }
@@ -186,6 +204,16 @@ func VerifyControlReceipt(r ControlReceipt, p ControlPlan, key ed25519.PublicKey
 	}
 	if (p.Kind == "enroll") != (r.Freeze == nil) {
 		return errors.New("receipt lifecycle mismatch")
+	}
+	if r.Historical != nil {
+		if p.Kind != "enroll" || r.Historical.Owner != r.Owner || len(r.Historical.Aliases) != len(claims) {
+			return errors.New("historical receipt scope mismatch")
+		}
+		for _, a := range claims {
+			if _, ok := r.Historical.Aliases[a.Email]; !ok {
+				return errors.New("historical receipt alias missing")
+			}
+		}
 	}
 	return nil
 }
