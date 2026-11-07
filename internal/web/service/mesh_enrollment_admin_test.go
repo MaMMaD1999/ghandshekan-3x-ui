@@ -13,6 +13,37 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestMeshCapabilitiesRequireAdmittedMajorityRuntime(t *testing.T) {
+	oldAdmin, oldEnrollment := activeMeshAdministrator.Load(), activeMeshEnrollment.Load()
+	oldGuard, oldReady, oldFault := meshGuardEnabled.Load(), meshAdmissionReady.Load(), meshRestoreFault.Load()
+	t.Cleanup(func() {
+		activeMeshAdministrator.Store(oldAdmin)
+		activeMeshEnrollment.Store(oldEnrollment)
+		meshGuardEnabled.Store(oldGuard)
+		meshAdmissionReady.Store(oldReady)
+		meshRestoreFault.Store(oldFault)
+	})
+	meshGuardEnabled.Store(true)
+	meshAdmissionReady.Store(true)
+	meshRestoreFault.Store(false)
+	activeMeshEnrollment.Store(&MeshEnrollmentAdministrator{})
+	for _, administrator := range []*MeshAdministrator{nil, {}} {
+		activeMeshAdministrator.Store(administrator)
+		caps := MeshCapabilities()
+		if caps["runtimeReady"] != false || caps["enrollmentReady"] != false || caps["independentCutoff"] != false {
+			t.Fatal("advertised independent control without a majority runtime", caps)
+		}
+	}
+	activeMeshAdministrator.Store(&MeshAdministrator{Quorum: &MeshQuorum{}})
+	if MeshCapabilities()["enrollmentReady"] != true {
+		t.Fatal("ready majority enrollment was hidden")
+	}
+	meshRestoreFault.Store(true)
+	if MeshCapabilities()["runtimeReady"] != false {
+		t.Fatal("restore failure advertised an admitted runtime")
+	}
+}
+
 func enrollmentAdminFixture(t *testing.T) (*MeshEnrollmentAdministrator, *MeshControl) {
 	t.Helper()
 	node, authority, _, _ := controlFixture(t, "manager")

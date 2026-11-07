@@ -432,3 +432,29 @@ Do not enable enrollment merely because the private tools or network canary pass
   proofs, restored counter floors, and pending barriers. Full ledger/consensus/panel
   regressions and three repeated race runs passed. Production enrollment is still
   disabled; these tests do not imply that the remaining membership adapters exist.
+
+### Operator renewals and checkpoint network acceptance (2026-11-07)
+
+`meshcontrol renew/reset` on a configured majority member now uses its authenticated
+running control service. It does not open the enrollment authority or a separate
+coordinator journal. Supply a stable `--operation` ID and a private request file
+with `subscription` and the complete mutable `target` (`mode: shared`, `limit`,
+`expiresAt`, `disabled`, `unlimited`). Do not supply roots, a previous coordinator
+job, weights or schedules for this action. Retry a lost reply with the same file
+and operation ID. The response distinguishes majority commitment from application
+on disconnected members; background policy certification remains responsible for
+catch-up. Repeated reset IDs retain their original result even after later renewals.
+
+The latest checkpoint canary used fresh test signing keys and separate state. Two
+German members were stopped while Austria, Netherlands and the US committed a
+renewal and reset. The German members subsequently caught up to the latest policy.
+The first reset certificate collection in the one-shot test helper raced follower
+application; retrying the same ID obtained the majority proof without a second
+reset. The production certificate collector already retries this condition.
+An older test cluster without its independent attestation journal was correctly
+rejected; its files were preserved rather than bypassing that guard.
+
+The public capability flags require an admitted majority runtime. A legacy private
+coordinator alone no longer advertises independent mesh control to the app adapter.
+These changes do not enable production enrollment or remove the membership-adapter
+requirements above.

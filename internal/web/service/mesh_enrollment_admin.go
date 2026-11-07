@@ -162,6 +162,7 @@ func QueueMeshEnrollment(ctx context.Context, input MeshEnrollmentInput, key str
 }
 
 func MeshCapabilities() map[string]any {
-	runtime := activeMeshAdministrator.Load() != nil && meshCanAdmit()
+	administrator := activeMeshAdministrator.Load()
+	runtime := administrator != nil && administrator.Quorum != nil && meshCanAdmit()
 	return map[string]any{"protocolVersion": 1, "runtimeReady": runtime, "enrollmentReady": runtime && activeMeshEnrollment.Load() != nil, "usageMode": "shared", "independentCutoff": runtime}
 }

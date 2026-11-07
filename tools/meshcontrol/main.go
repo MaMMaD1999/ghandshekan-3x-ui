@@ -112,6 +112,33 @@ func run() error {
 	if !slicesContains([]string{"plan-enroll", "enroll", "renew", "reset", "resume", "watch", "status"}, *action) {
 		return errors.New("unknown action")
 	}
+	// An ordinary node must not need the enrollment authority to renew/reset.
+	// Its running majority controller owns admission and the durable retry ID.
+	if *action == "renew" || *action == "reset" {
+		config, trust, err := service.LoadMeshConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if config.ControlEpoch != "" {
+			var input request
+			if err := readPrivate(*requestPath, &input); err != nil {
+				return err
+			}
+			command, err := majorityCommand(*action, *id, input)
+			if err != nil {
+				return err
+			}
+			client, _, err := quotaescrow.HTTPClients(trust, "")
+			if err != nil {
+				return err
+			}
+			defer client.CloseIdleConnections()
+			wire := &meshconsensus.Wire{Owner: config.Owner, Epoch: config.ControlEpoch, Key: ed25519.PrivateKey(config.PrivateKey), Keys: config.PeerKeys, Peers: config.Peers, Direct: client}
+			ctx, cancel := context.WithTimeout(context.Background(), *deadline)
+			defer cancel()
+			return submitMajorityChange(ctx, config.Owner, command, wire.Call, os.Stdout)
+		}
+	}
 	db, err := openJournal(*journalPath)
 	if err != nil {
 		return err
