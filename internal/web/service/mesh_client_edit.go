@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -61,6 +62,8 @@ func TryMeshClientEdit(ctx context.Context, email string, updated model.Client, 
 	after := updated
 	after.TotalGB, after.ExpiryTime, after.Enable = before.TotalGB, before.ExpiryTime, before.Enable
 	after.CreatedAt, after.UpdatedAt = before.CreatedAt, before.UpdatedAt
+	after.Comment, after.Group, after.TgID = before.Comment, before.Group, before.TgID
+	after.LimitIP, after.AdTag = before.LimitIP, before.AdTag
 	// Compare JSON representations, so omitted empty maps/slices are equivalent.
 	encode := func(v any) map[string]any {
 		b, _ := json.Marshal(v)
@@ -68,8 +71,11 @@ func TryMeshClientEdit(ctx context.Context, email string, updated model.Client, 
 		_ = json.Unmarshal(b, &m)
 		return m
 	}
-	if !reflect.DeepEqual(encode(before), encode(after)) || limitHwid != existing.LimitHwid {
-		return true, result, errors.New("mesh quota edits cannot also change credentials, membership, metadata or schedules")
+	if !reflect.DeepEqual(encode(before), encode(after)) {
+		return true, result, errors.New("mesh credential, membership or schedule changes require a coordinated transition")
+	}
+	if updated.LimitIP < 0 || limitHwid < 0 {
+		return true, result, errors.New("client device limits cannot be negative")
 	}
 	if updated.ExpiryTime < 0 {
 		return true, result, errors.New("a mesh renewal requires a fixed expiry time")
@@ -79,6 +85,12 @@ func TryMeshClientEdit(ctx context.Context, email string, updated model.Client, 
 		expires++
 	}
 	disabled, unlimited := !updated.Enable, updated.TotalGB == 0
+	// Metadata must not generate a policy revision or interrupt a live stream.
+	// It never writes quota, credentials or counters, even if a peer renewal
+	// commits between the read above and the serialized metadata transaction.
+	if updated.TotalGB == before.TotalGB && updated.ExpiryTime == before.ExpiryTime && updated.Enable == before.Enable {
+		return true, result, applyMeshClientMetadata(db, existing, updated, limitHwid)
+	}
 	if key == "" {
 		// Existing integrations perform absolute client updates without a retry
 		// header. Preserve that API, but pin this update to the observed policy:
@@ -89,9 +101,74 @@ func TryMeshClientEdit(ctx context.Context, email string, updated model.Client, 
 		}
 		input, generated := legacyAbsoluteMeshRequest(ledger.Policy(), updated.TotalGB, expires, disabled, unlimited)
 		receipt, err := QueueMeshParentPolicy(ctx, input, generated)
+		if err == nil {
+			err = applyMeshClientMetadata(db, existing, updated, limitHwid)
+		}
 		return true, MeshOperationResult{Operation: receipt.Operation, Pending: receipt.ApplicationPending}, err
 	}
-	return TryMeshLifecycle(ctx, email, "renew", key, &updated.TotalGB, &expires, MeshAvailability{Disabled: &disabled, Unlimited: &unlimited})
+	managed, result, err := TryMeshLifecycle(ctx, email, "renew", key, &updated.TotalGB, &expires, MeshAvailability{Disabled: &disabled, Unlimited: &unlimited})
+	if err == nil {
+		err = applyMeshClientMetadata(db, existing, updated, limitHwid)
+	}
+	return managed, result, err
+}
+
+func applyMeshClientMetadata(db *gorm.DB, original model.ClientRecord, next model.Client, limitHwid int) error {
+	if original.Comment == next.Comment && original.Group == next.Group && original.TgID == next.TgID && original.LimitIP == next.LimitIP && original.AdTag == next.AdTag && original.LimitHwid == limitHwid {
+		return nil
+	}
+	return submitTrafficWrite(func() error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			var current model.ClientRecord
+			if err := tx.First(&current, "id = ? AND email = ?", original.Id, original.Email).Error; err != nil {
+				return err
+			}
+			if current.UUID != original.UUID || current.SubID != original.SubID || current.Password != original.Password || current.Auth != original.Auth {
+				return errors.New("client identity changed while saving metadata")
+			}
+			now := time.Now().UnixMilli()
+			if err := tx.Model(&current).Updates(map[string]any{"comment": next.Comment, "group_name": next.Group, "tg_id": next.TgID, "limit_ip": next.LimitIP, "limit_hwid": limitHwid, "ad_tag": next.AdTag, "updated_at": now}).Error; err != nil {
+				return err
+			}
+			var inbounds []model.Inbound
+			if err := tx.Table("inbounds i").Select("i.*").Joins("JOIN client_inbounds ci ON ci.inbound_id = i.id").Where("ci.client_id = ?", current.Id).Find(&inbounds).Error; err != nil {
+				return err
+			}
+			for _, inbound := range inbounds {
+				var body map[string]any
+				if err := json.Unmarshal([]byte(inbound.Settings), &body); err != nil {
+					return err
+				}
+				entries, _ := body["clients"].([]any)
+				found := false
+				for _, entry := range entries {
+					row, ok := entry.(map[string]any)
+					if !ok || row["email"] != current.Email {
+						continue
+					}
+					found = true
+					row["comment"], row["group"], row["tgId"] = next.Comment, next.Group, next.TgID
+					row["limitIp"], row["adTag"], row["updated_at"] = next.LimitIP, next.AdTag, now
+				}
+				if !found {
+					return errors.New("client metadata attachment disappeared")
+				}
+				encoded, err := json.Marshal(body)
+				if err != nil {
+					return err
+				}
+				if err := tx.Model(&model.Inbound{}).Where("id = ?", inbound.Id).Update("settings", string(encoded)).Error; err != nil {
+					return err
+				}
+				if inbound.NodeID != nil {
+					if err := (&NodeService{}).MarkNodeDirtyTx(tx, *inbound.NodeID); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+	})
 }
 
 func legacyAbsoluteMeshRequest(p quotaescrow.Policy, limit, expires int64, disabled, unlimited bool) (MeshParentPolicyInput, string) {

@@ -83,6 +83,11 @@ func requireMeshSettingsUnchanged(tx *gorm.DB, current, next string) error {
 				return nil, errors.New("duplicate mesh alias")
 			}
 			delete(row, "updated_at")
+			// Display/device-limit edits do not change the signed credential or
+			// spending scope and may still use ordinary node metadata sync.
+			for _, key := range []string{"comment", "group", "tgId", "limitIp", "limitHwid", "adTag"} {
+				delete(row, key)
+			}
 			out[email] = row
 		}
 		return out, nil
