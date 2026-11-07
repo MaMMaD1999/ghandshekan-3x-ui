@@ -23,6 +23,11 @@ func commitInboundClientSettings(tx *gorm.DB, ib *model.Inbound, base string) er
 		}
 		ib.Settings = merged
 	}
+	if len(current) == 1 {
+		if err := requireMeshSettingsUnchanged(tx, current[0], ib.Settings); err != nil {
+			return err
+		}
+	}
 	return tx.Model(&model.Inbound{}).Where("id = ?", ib.Id).Update("settings", ib.Settings).Error
 }
 

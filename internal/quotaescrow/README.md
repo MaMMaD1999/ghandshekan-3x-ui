@@ -336,3 +336,49 @@ Provisioning and availability-mode acceptance on 2026-11-07:
   while downloading, and offline-master cutoff in both policy modes. An unrelated
   stream survives and the core instance is unchanged. Control transport and shared
   ledger race tests pass. These tests run isolated processes, not live subscribers.
+
+Enrollment planning, recovery and network canary acceptance on 2026-11-07:
+
+- `tools/meshcontrol` constructs a plan from authority-signed inventories of
+  explicitly chosen accounting roots. It refuses unprovisioned children, cycles,
+  duplicate aliases, pending resets and first-use deadlines that are not active.
+  Renewal/reset retain the previous complete member set and verify its epoch.
+- A read-only preflight precedes the first admission barrier. Its completion is
+  persisted before prepare so a lost first reply can resume the same barrier.
+  This detects an already unavailable member; it cannot make all members remain
+  reachable throughout a distributed operation.
+- The private operator journal supports `watch`, which retries persisted jobs
+  with bounded attempts and a round-robin cursor. It never invents operations
+  or treats a missing receipt as completion. Legacy reset, counter edits,
+  deletion, membership mutation and scheduled renewal cannot bypass a managed
+  epoch. These guards are not public UI lifecycle integration.
+- A separate synthetic ledger and separate mTLS/signing identities exercised
+  direct exchange between four actual hosts. An injected direct failure used a
+  real intermediary. When that intermediary was stopped, a dedicated loopback
+  SOCKS client reached the destination as the third path. Restored direct access
+  took precedence even with the fallback configured. The source code and endpoint
+  logic were the production implementations; no production subscriber enrolled.
+- The test master listener was stopped while the other three members continued
+  accounting. Its restart recovered the total without a reset. Repeated messages
+  did not increase billed usage. Simulated independent shared-mode consumption
+  reconciled exactly to 13,700 bytes (including the expected partition overshoot)
+  and zero remaining allowance on all four members. Anonymous TLS and unsigned
+  exchanges were rejected. All test listeners were stopped afterwards.
+- A 1,400-subscription sizing check exposed repeated signature work in full
+  restore checkpoints. Exact-value validation caches reduced the measured steady
+  unchanged scan from 2.92 seconds to 69 milliseconds on the same two-CPU build
+  host. Both databases are still read on every check. Changed bytes/signatures,
+  same-revision mutations, regressing meters and missing bindings still fail.
+  An all-active settlement remains separately measured (approximately 2.6 seconds
+  in this synthetic run); the unchanged checkpoint timing is not end-to-end
+  cutoff latency or a guarantee on other machines.
+- Final ledger/service/job/controller/web regression, static panel/operator
+  builds, actual panel/core enrollment-renew-reset and both offline cutoff modes
+  passed with these changes. Checkpoint/coordinator race tests also passed.
+
+Production remains on panel 35 with enrollment disabled. The queued-versus-
+immediate policy for reset/renewal during a complete member isolation still needs
+an operator decision. Public UI/API/bulk/scheduled lifecycle integration, binding
+application device aliases to their finite subscription policy, and the final
+subscriber rollout remain unfinished. Do not enable enrollment merely because
+the private operator tools or the network canary passed.

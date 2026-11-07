@@ -108,6 +108,51 @@ func TestMeshCoordinatorRestartAndLostCommitReplyDoNotResetAgain(t *testing.T) {
 	}
 }
 
+func TestMeshCoordinatorPreflightDoesNotFenceAndSurvivesLostFirstPrepare(t *testing.T) {
+	a, authority, plan, _ := controlFixture(t, "a")
+	if err := a.DB.AutoMigrate(&quotaescrow.ControlJob{}); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string][]byte{"a": a.Key.Public().(ed25519.PublicKey)}
+	ready, checks, calls, loseReply := false, 0, 0, true
+	preflight := func(context.Context, quotaescrow.ControlPlan) error {
+		checks++
+		if !ready {
+			return errors.New("member unreachable")
+		}
+		return nil
+	}
+	call := func(ctx context.Context, owner string, signed quotaescrow.SignedControl) (quotaescrow.ControlReceipt, error) {
+		calls++
+		receipt, err := a.Execute(ctx, signed)
+		if err == nil && loseReply {
+			loseReply = false
+			return quotaescrow.ControlReceipt{}, errors.New("lost prepared reply")
+		}
+		return receipt, err
+	}
+	initial := func(context.Context, quotaescrow.ControlPlan, []quotaescrow.ControlReceipt) (int64, error) {
+		return 0, nil
+	}
+	c := &quotaescrow.Coordinator{DB: a.DB, Authority: authority, Call: call, InitialUsage: initial, CheckReady: preflight}
+	if err := c.Create(plan, nil, quotaescrow.ControlTarget{Limit: 1000}, keys); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := c.Resume(context.Background(), plan.ID); err == nil || done || calls != 0 {
+		t.Fatal("unreachable preflight fenced a member", calls, err)
+	}
+	ready = true
+	if _, done, err := c.Resume(context.Background(), plan.ID); err == nil || done || calls != 1 {
+		t.Fatal("lost first prepare not exercised", calls, err)
+	}
+	// A restart must replay prepare, not reject its own now-pending barrier.
+	ready = false
+	c = &quotaescrow.Coordinator{DB: a.DB, Authority: authority, Call: call, InitialUsage: initial, CheckReady: preflight}
+	if _, done, err := c.Resume(context.Background(), plan.ID); err != nil || !done || checks != 2 {
+		t.Fatal("lost prepare recovery reran preflight", checks, err)
+	}
+}
+
 func TestMeshCoordinatorEnrollsControlOnlyMasterFromSignedHistory(t *testing.T) {
 	a, authority, plan, _ := controlFixture(t, "master")
 	b, _, other, _ := controlFixture(t, "child")

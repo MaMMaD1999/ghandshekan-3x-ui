@@ -95,7 +95,7 @@ func TestMeshScopedCheckpointRejectsRollbackBeforePublication(t *testing.T) {
 }
 
 func TestMeshCheckpointRejectsMissingBindingMeterClockAndTampering(t *testing.T) {
-	for _, kind := range []string{"binding", "meter", "clock", "signature", "higher-revision", "watermark"} {
+	for _, kind := range []string{"binding", "meter", "clock", "signature", "floor-signature", "same-revision-rows", "same-revision-policy", "higher-revision", "watermark"} {
 		t.Run(kind, func(t *testing.T) {
 			db, c, cp, p := checkpointFixture(t)
 			if err := db.Transaction(func(tx *gorm.DB) error { return recordMeshLocalUsage(tx, "phone", 100, 0) }); err != nil {
@@ -108,6 +108,12 @@ func TestMeshCheckpointRejectsMissingBindingMeterClockAndTampering(t *testing.T)
 			if err := cp.Advance(db); err != nil {
 				t.Fatal(err)
 			}
+			// Warm exact-value caches; they must never hide a changed DB value.
+			for i := 0; i < 2; i++ {
+				if err := cp.Advance(db); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var mutate error
 			switch kind {
 			case "binding":
@@ -118,6 +124,12 @@ func TestMeshCheckpointRejectsMissingBindingMeterClockAndTampering(t *testing.T)
 				mutate = db.Model(&quotaescrow.ClockState{}).Where("id = ?", "local").Update("last_unix", 1).Error
 			case "signature":
 				mutate = cp.db.Model(&meshCheckpointEntry{}).Where("id = ?", "sub:"+p.Subscription).Update("body", []byte("{}")).Error
+			case "floor-signature":
+				mutate = cp.db.Model(&meshCheckpointEntry{}).Where("id = ?", "sub:"+p.Subscription).Update("signature", make([]byte, ed25519.SignatureSize)).Error
+			case "same-revision-rows":
+				mutate = db.Model(&quotaescrow.Record{}).Where("subscription = ?", p.Subscription).Update("rows_json", "[]").Error
+			case "same-revision-policy":
+				mutate = db.Model(&quotaescrow.Record{}).Where("subscription = ?", p.Subscription).Update("policy_json", "{}").Error
 			case "higher-revision":
 				mutate = db.Model(&quotaescrow.Record{}).Where("subscription = ?", p.Subscription).Updates(map[string]any{"revision": 99, "rows_json": "[]"}).Error
 			case "watermark":

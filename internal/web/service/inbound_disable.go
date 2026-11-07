@@ -88,6 +88,17 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *traff
 	if err != nil {
 		return false, 0, nil, err
 	}
+	managed, err := meshManagedAliases(tx)
+	if err != nil {
+		return false, 0, nil, err
+	}
+	ordinary := depletedRows[:0]
+	for _, row := range depletedRows {
+		if !managed[row.Email] {
+			ordinary = append(ordinary, row)
+		}
+	}
+	depletedRows = ordinary
 	if len(depletedRows) == 0 {
 		return false, 0, nil, nil
 	}

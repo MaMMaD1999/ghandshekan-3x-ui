@@ -2035,6 +2035,12 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 			inbound.Settings = keepStoredClients(inbound.Settings, stored.Settings)
 			inbound.Enable = stored.Enable
 		}
+		if err := requireMeshInboundIdentity(tx, stored, inbound); err != nil {
+			return err
+		}
+		if err := requireMeshSettingsUnchanged(tx, stored.Settings, inbound.Settings); err != nil {
+			return err
+		}
 		// On the clients actually saved: a protocol switch keeps the stored ones.
 		if err := s.validateUpdatedInboundClients(inbound); err != nil {
 			return err

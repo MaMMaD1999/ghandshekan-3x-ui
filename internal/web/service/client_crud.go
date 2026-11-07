@@ -869,6 +869,9 @@ func (s *ClientService) Delete(inboundSvc *InboundService, id int, keepTraffic b
 	if err != nil {
 		return false, err
 	}
+	if err := requireLegacyAliases(database.GetDB(), existing.Email); err != nil {
+		return false, err
+	}
 	tombstoneClientEmail(existing.Email)
 
 	inboundIds, err := s.GetInboundIdsForRecord(id)
@@ -918,6 +921,9 @@ func (s *ClientService) Delete(inboundSvc *InboundService, id int, keepTraffic b
 	}
 
 	if err := runSerializedTx(func(tx *gorm.DB) error {
+		if err := requireLegacyAliases(tx, existing.Email); err != nil {
+			return err
+		}
 		if existing.Email != "" {
 			if err := adjustGroupBaselinesForRemovedTraffic(tx, []string{existing.Email}); err != nil {
 				return err

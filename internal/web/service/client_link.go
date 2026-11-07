@@ -104,6 +104,13 @@ func (s *ClientService) syncInboundClients(tx *gorm.DB, inboundId int, clients [
 	if tx == nil {
 		tx = database.GetDB()
 	}
+	if err := requireMeshLinksUnchanged(tx, inboundId, clients, detachEmails, prune); err != nil {
+		return err
+	}
+	managed, err := meshManagedAliases(tx)
+	if err != nil {
+		return err
+	}
 
 	var inbound model.Inbound
 	if err := tx.Select("protocol").Where("id = ?", inboundId).Take(&inbound).Error; err != nil {
@@ -182,6 +189,9 @@ func (s *ClientService) syncInboundClients(tx *gorm.DB, inboundId int, clients [
 		keepLinkOwnedFields(row, &before, isTunnel && !outranked)
 		preservedUpdatedAt := max(incoming.UpdatedAt, row.UpdatedAt)
 		row.UpdatedAt = preservedUpdatedAt
+		if err := requireMeshRecordUnchanged(managed, before, *row); err != nil {
+			return err
+		}
 
 		idByEmail[email] = row.Id
 
@@ -455,6 +465,9 @@ func settleRecordFlows(tx *gorm.DB, clientIds []int) error {
 func (s *ClientService) DetachInbound(tx *gorm.DB, inboundId int) error {
 	if tx == nil {
 		tx = database.GetDB()
+	}
+	if err := requireMeshLinksUnchanged(tx, inboundId, nil, nil, true); err != nil {
+		return err
 	}
 	return tx.Where("inbound_id = ?", inboundId).Delete(&model.ClientInbound{}).Error
 }

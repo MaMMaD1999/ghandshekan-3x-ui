@@ -24,16 +24,17 @@ type ControlTarget struct {
 }
 
 type ControlJob struct {
-	ID               string `gorm:"primaryKey"`
-	Revision         uint64
-	PlanJSON         string
-	PriorJSON        string
-	TargetJSON       string
-	KeysJSON         string
-	ReceiptsJSON     string
-	PolicyJSON       string
-	AcknowledgedJSON string
-	Complete         bool
+	ID                string `gorm:"primaryKey"`
+	Revision          uint64
+	PlanJSON          string
+	PriorJSON         string
+	TargetJSON        string
+	KeysJSON          string
+	ReceiptsJSON      string
+	PolicyJSON        string
+	AcknowledgedJSON  string
+	PreflightComplete bool
+	Complete          bool
 }
 
 func (ControlJob) TableName() string { return "quota_escrow_control_jobs" }
@@ -46,6 +47,7 @@ type Coordinator struct {
 	Authority    ed25519.PrivateKey
 	Call         func(context.Context, string, SignedControl) (ControlReceipt, error)
 	InitialUsage func(context.Context, ControlPlan, []ControlReceipt) (int64, error)
+	CheckReady   func(context.Context, ControlPlan) error
 	mu           sync.Mutex
 }
 
@@ -167,6 +169,16 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 	// not bypass the validation performed on its original creation.
 	if err := c.Create(plan, prior, target, keys); err != nil {
 		return empty, false, err
+	}
+	if len(receipts) == 0 && !job.PreflightComplete && c.CheckReady != nil {
+		if err := c.CheckReady(ctx, plan); err != nil {
+			return empty, false, err
+		}
+		// Persist BEFORE prepare: its reply may be lost after a member fenced.
+		// Re-inspecting then would mistake our own durable barrier for a conflict.
+		if err := c.save(&job, map[string]any{"preflight_complete": true}); err != nil {
+			return empty, false, err
+		}
 	}
 	owners := make([]string, 0, len(plan.Claims))
 	for owner := range plan.Claims {

@@ -410,6 +410,12 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB, mutationBatch *trafficMut
 	if err != nil {
 		return false, 0, err
 	}
+	// A managed cycle is renewed only by the signed coordinator. The ordinary
+	// periodic job must not independently advance one member's expiry/counters.
+	traffics, err = excludeMeshTraffic(tx, traffics)
+	if err != nil {
+		return false, 0, err
+	}
 	// return if there is no client to renew
 	if len(traffics) == 0 {
 		return false, 0, nil
@@ -1260,6 +1266,9 @@ func (s *InboundService) GetClientTrafficByEmail(email string) (traffic *xray.Cl
 func (s *InboundService) UpdateClientTrafficByEmail(email string, upload int64, download int64) error {
 	return submitTrafficWrite(func() error {
 		db := database.GetDB()
+		if err := requireLegacyAliases(db, email); err != nil {
+			return err
+		}
 		err := db.Model(xray.ClientTraffic{}).
 			Where("email = ?", email).
 			Updates(map[string]any{

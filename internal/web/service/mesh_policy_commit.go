@@ -23,7 +23,7 @@ func commitMeshClientPolicy(tx *gorm.DB, p quotaescrow.Policy, kind string, emai
 		return err
 	}
 	if kind == "reset" {
-		if err := resetTrafficReports(tx, emails...); err != nil {
+		if err := resetTrafficReportsCommitted(tx, emails...); err != nil {
 			return err
 		}
 		if err := adjustGroupBaselinesForRemovedTraffic(tx, emails); err != nil {

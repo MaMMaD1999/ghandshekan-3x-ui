@@ -30,6 +30,11 @@ type MeshCheckpoint struct {
 	key   ed25519.PrivateKey
 	owner string
 	mu    *sync.Mutex
+	// Exact immutable values already validated by this process. Every cycle
+	// still reads both databases and compares counters/barriers; a changed
+	// byte, signature, epoch or revision requires validation again.
+	validatedRecords map[string]quotaescrow.Record
+	verifiedEntries  map[string]meshCheckpointEntry
 }
 
 type meshCheckpointEntry struct {
@@ -150,7 +155,17 @@ func (c *MeshCheckpoint) signed(id string, body []byte) meshCheckpointEntry {
 	return meshCheckpointEntry{ID: id, Body: body, Signature: ed25519.Sign(c.key, checkpointSignedPayload(c.owner, id, body))}
 }
 func (c *MeshCheckpoint) verify(entry meshCheckpointEntry) bool {
-	return ed25519.Verify(c.key.Public().(ed25519.PublicKey), checkpointSignedPayload(c.owner, entry.ID, entry.Body), entry.Signature)
+	if prior, ok := c.verifiedEntries[entry.ID]; ok && bytes.Equal(prior.Body, entry.Body) && bytes.Equal(prior.Signature, entry.Signature) {
+		return true
+	}
+	if !ed25519.Verify(c.key.Public().(ed25519.PublicKey), checkpointSignedPayload(c.owner, entry.ID, entry.Body), entry.Signature) {
+		return false
+	}
+	if c.verifiedEntries == nil {
+		c.verifiedEntries = map[string]meshCheckpointEntry{}
+	}
+	c.verifiedEntries[entry.ID] = meshCheckpointEntry{ID: entry.ID, Body: bytes.Clone(entry.Body), Signature: bytes.Clone(entry.Signature)}
+	return true
 }
 func (c *MeshCheckpoint) Advance(source *gorm.DB) error {
 	c.mu.Lock()
@@ -202,8 +217,10 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 			return errors.New("scoped checkpoint policy missing")
 		}
 		for _, record := range records {
-			if err := quotaescrow.ValidateCheckpointAdvance(record, record, nil); err != nil {
-				return err
+			if prior, ok := c.validatedRecords[record.Subscription]; !ok || prior != record {
+				if err := quotaescrow.ValidateCheckpointAdvance(record, record, nil); err != nil {
+					return err
+				}
 			}
 			states[record.Subscription] = meshCheckpointState{Record: record, Local: map[string]model.LocalUsage{}, Meters: map[string]quotaescrow.Meter{}}
 		}
@@ -343,8 +360,10 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 			if hasArchive {
 				proof = &archive
 			}
-			if err := quotaescrow.ValidateCheckpointAdvance(old.Record, current.Record, proof); err != nil {
-				return err
+			if old.Record != current.Record {
+				if err := quotaescrow.ValidateCheckpointAdvance(old.Record, current.Record, proof); err != nil {
+					return err
+				}
 			}
 			bindings := map[string]model.MeshBinding{}
 			for _, b := range current.Bindings {
@@ -407,6 +426,12 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 	})
 	if err != nil {
 		return errors.Join(ErrMeshRestore, err)
+	}
+	if c.validatedRecords == nil {
+		c.validatedRecords = map[string]quotaescrow.Record{}
+	}
+	for subscription, state := range states {
+		c.validatedRecords[subscription] = state.Record
 	}
 	return nil
 }

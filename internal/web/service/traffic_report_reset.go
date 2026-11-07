@@ -9,6 +9,14 @@ import (
 )
 
 func resetTrafficReports(tx *gorm.DB, emails ...string) error {
+	if err := requireLegacyAliases(tx, emails...); err != nil {
+		return err
+	}
+	return resetTrafficReportsCommitted(tx, emails...)
+}
+
+// Only the authenticated epoch commit may clear managed usage cards.
+func resetTrafficReportsCommitted(tx *gorm.DB, emails ...string) error {
 	if !tx.Migrator().HasTable(&model.InboundTrafficReportBaseline{}) {
 		return nil
 	}
