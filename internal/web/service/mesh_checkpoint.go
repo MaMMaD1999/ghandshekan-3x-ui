@@ -336,7 +336,7 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 					return err
 				}
 				current, ok := controls[id]
-				if !ok || old.ID != id || current.PlanHash != old.PlanHash || current.PlanJSON != old.PlanJSON || current.Subscription != old.Subscription || current.Stage < old.Stage || (old.Stage >= 1 && current.ReceiptJSON != old.ReceiptJSON) || (old.Stage == 2 && current.CommitHash != old.CommitHash) {
+				if !ok || old.ID != id || current.PlanHash != old.PlanHash || current.PlanJSON != old.PlanJSON || current.Subscription != old.Subscription || current.Stage < old.Stage || (old.Stage >= 1 && current.ReceiptJSON != old.ReceiptJSON) || (old.Stage == 2 && current.CommitHash != old.CommitHash) || (old.CancelReceiptJSON != "" && current.CancelReceiptJSON != old.CancelReceiptJSON) {
 					return errors.New("control barrier precedes checkpoint")
 				}
 				previousControls[id] = floor.Body
@@ -465,6 +465,13 @@ func (c *MeshCheckpoint) validateControlCheckpoint(state model.MeshControlState)
 	}
 	if state.Stage == 2 && len(state.CommitHash) != 64 {
 		return errors.New("missing committed policy digest")
+	}
+	if state.CancelReceiptJSON != "" {
+		var canceled quotaescrow.ControlReceipt
+		if state.Stage == 2 || json.Unmarshal([]byte(state.CancelReceiptJSON), &canceled) != nil || canceled.Owner != c.owner {
+			return errors.New("invalid canceled enrollment checkpoint")
+		}
+		return quotaescrow.VerifyEnrollmentCancellation(canceled, plan, c.key.Public().(ed25519.PublicKey))
 	}
 	return nil
 }

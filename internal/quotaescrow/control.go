@@ -44,6 +44,7 @@ type SignedControl struct {
 }
 
 type ControlReceipt struct {
+	Canceled   bool              `json:"canceled,omitempty"`
 	PlanHash   string            `json:"planHash"`
 	Owner      string            `json:"owner"`
 	Local      map[string]int64  `json:"local"`
@@ -143,6 +144,10 @@ func validateControl(c ControlCommand) error {
 		return errors.New("invalid control window")
 	}
 	switch c.Operation {
+	case "cancel-enrollment":
+		if c.Plan.Kind != "enroll" || c.Policy != nil || len(c.Receipts) != 0 {
+			return errors.New("only uncommitted enrollment can be canceled")
+		}
 	case "prepare":
 		if c.Policy != nil || len(c.Receipts) != 0 {
 			return errors.New("prepare cannot carry commit data")
@@ -209,6 +214,9 @@ func SignControlReceipt(r ControlReceipt, key ed25519.PrivateKey) (ControlReceip
 }
 
 func VerifyControlReceipt(r ControlReceipt, p ControlPlan, key ed25519.PublicKey) error {
+	if r.Canceled {
+		return errors.New("cancellation is not a prepared accounting receipt")
+	}
 	claims := p.Claims[r.Owner]
 	if r.PlanHash != ControlPlanHash(p) || len(claims) == 0 || len(r.Local) != len(claims) || len(r.Sources) != len(claims) || len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, receiptPayload(r), r.Signature) {
 		return errors.New("invalid prepared receipt")
@@ -231,6 +239,13 @@ func VerifyControlReceipt(r ControlReceipt, p ControlPlan, key ed25519.PublicKey
 				return errors.New("historical receipt alias missing")
 			}
 		}
+	}
+	return nil
+}
+
+func VerifyEnrollmentCancellation(r ControlReceipt, p ControlPlan, key ed25519.PublicKey) error {
+	if !r.Canceled || p.Kind != "enroll" || r.PlanHash != ControlPlanHash(p) || len(p.Claims[r.Owner]) == 0 || len(r.Local) != 0 || len(r.Sources) != 0 || r.Freeze != nil || r.Historical != nil || len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, receiptPayload(r), r.Signature) {
+		return errors.New("invalid enrollment cancellation receipt")
 	}
 	return nil
 }

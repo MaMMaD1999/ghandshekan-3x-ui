@@ -88,6 +88,21 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 	for email := range pending {
 		e.known[email] = true
 	}
+	// Only an authenticated terminal cancellation may return a prepared legacy
+	// alias to ordinary enforcement. A missing binding alone still never does.
+	canceled, err := meshCanceledEnrollmentAliases(e.DB, e.KeyForOwner)
+	if err != nil {
+		return &MeshFenceError{Err: err}
+	}
+	for _, b := range bindings {
+		delete(canceled, b.Email)
+	}
+	for email := range pending {
+		delete(canceled, email)
+	}
+	for email := range canceled {
+		delete(e.known, email)
+	}
 	if len(e.known) == 0 {
 		// A fresh registry still has to acknowledge the core gate before it
 		// advertises readiness. Otherwise the application cannot enroll its

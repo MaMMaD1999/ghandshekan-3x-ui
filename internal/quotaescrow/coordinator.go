@@ -29,19 +29,21 @@ type ControlTarget struct {
 }
 
 type ControlJob struct {
-	ID                string `gorm:"primaryKey"`
-	Subscription      string `gorm:"index"`
-	UpdatesJSON       string `gorm:"not null;default:'[]'"`
-	Revision          uint64
-	PlanJSON          string
-	PriorJSON         string
-	TargetJSON        string
-	KeysJSON          string
-	ReceiptsJSON      string
-	PolicyJSON        string
-	AcknowledgedJSON  string
-	PreflightComplete bool
-	Complete          bool
+	ID                 string `gorm:"primaryKey"`
+	Subscription       string `gorm:"index"`
+	UpdatesJSON        string `gorm:"not null;default:'[]'"`
+	Revision           uint64
+	PlanJSON           string
+	PriorJSON          string
+	TargetJSON         string
+	KeysJSON           string
+	ReceiptsJSON       string
+	PolicyJSON         string
+	AcknowledgedJSON   string
+	PreflightComplete  bool
+	Complete           bool
+	CancelRequested    bool   `gorm:"not null;default:false"`
+	CanceledOwnersJSON string `gorm:"not null;default:'{}'"`
 }
 
 func (ControlJob) TableName() string { return "quota_escrow_control_jobs" }
@@ -204,6 +206,9 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 	var job ControlJob
 	if err := c.DB.First(&job, "id = ?", id).Error; err != nil {
 		return empty, false, err
+	}
+	if job.CancelRequested {
+		return empty, false, c.resumeEnrollmentCancellation(ctx, &job)
 	}
 	var plan ControlPlan
 	var prior *Policy

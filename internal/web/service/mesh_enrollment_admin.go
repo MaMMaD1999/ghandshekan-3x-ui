@@ -168,7 +168,7 @@ func (a *MeshEnrollmentAdministrator) queue(ctx context.Context, input MeshEnrol
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		var existing int64
-		if err := c.DB.Model(&quotaescrow.ControlJob{}).Where("subscription = ?", input.Subscription).Count(&existing).Error; err != nil {
+		if err := c.DB.Model(&quotaescrow.ControlJob{}).Where("subscription = ? AND (cancel_requested = ? OR complete = ?)", input.Subscription, false, false).Count(&existing).Error; err != nil {
 			return out, err
 		}
 		if existing != 0 {

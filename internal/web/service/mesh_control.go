@@ -123,7 +123,7 @@ func meshPendingAliases(db *gorm.DB) (map[string]bool, error) {
 		return result, nil
 	}
 	var rows []model.MeshControlState
-	if err := db.Where("stage < ?", 2).Find(&rows).Error; err != nil {
+	if err := db.Where("stage < ? AND cancel_receipt_json = ?", 2, "").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
@@ -229,6 +229,9 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 		return empty, err
 	}
 	plan := command.Plan
+	if command.Operation == "cancel-enrollment" {
+		return c.cancelEnrollment(plan)
+	}
 	claims := plan.Claims[c.Owner]
 	emails := make([]string, 0, len(claims))
 	for _, claim := range claims {
@@ -250,6 +253,9 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 	err = c.transaction(func(tx *gorm.DB) error {
 		err := tx.First(&state, "id = ?", plan.ID).Error
 		if err == nil {
+			if state.CancelReceiptJSON != "" {
+				return quotaescrow.ErrEnrollmentCanceled
+			}
 			if state.PlanHash != quotaescrow.ControlPlanHash(plan) {
 				return errors.New("operation ID already used")
 			}
@@ -424,7 +430,7 @@ func (c *MeshControl) commit(ctx context.Context, command quotaescrow.ControlCom
 	if err := c.DB.First(&state, "id = ?", plan.ID).Error; err != nil {
 		return result, err
 	}
-	if state.Stage < 1 || state.PlanHash != quotaescrow.ControlPlanHash(plan) {
+	if state.CancelReceiptJSON != "" || state.Stage < 1 || state.PlanHash != quotaescrow.ControlPlanHash(plan) {
 		return result, errors.New("operation not prepared")
 	}
 	if err := json.Unmarshal([]byte(state.ReceiptJSON), &result); err != nil {

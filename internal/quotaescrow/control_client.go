@@ -91,7 +91,11 @@ func (c ControlClient) Execute(ctx context.Context, owner string, request Signed
 	if out.Owner != owner {
 		return ControlReceipt{}, errors.New("control response owner mismatch")
 	}
-	if err := VerifyControlReceipt(out, request.Command.Plan, ed25519.PublicKey(c.Keys[owner])); err != nil {
+	verify := VerifyControlReceipt
+	if request.Command.Operation == "cancel-enrollment" {
+		verify = VerifyEnrollmentCancellation
+	}
+	if err := verify(out, request.Command.Plan, ed25519.PublicKey(c.Keys[owner])); err != nil {
 		return ControlReceipt{}, err
 	}
 	return out, nil

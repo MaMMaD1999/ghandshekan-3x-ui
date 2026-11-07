@@ -50,6 +50,15 @@ func (a *MeshEnrollmentAdministrator) QueueNative(ctx context.Context, email, ke
 	if err != nil {
 		return MeshOperationResult{}, err
 	}
+	if key == "native-automatic-v1" {
+		var attempts int64
+		if err := a.manager.Coordinator.DB.Model(&quotaescrow.ControlJob{}).Where("subscription = ? AND cancel_requested = ? AND complete = ?", input.Subscription, true, true).Count(&attempts).Error; err != nil {
+			return MeshOperationResult{}, err
+		}
+		if attempts > 0 {
+			key = fmt.Sprintf("native-automatic-v1-retry-%d", attempts)
+		}
+	}
 	id, err := meshOperationID(input.Subscription, "enroll", key)
 	if err != nil {
 		return MeshOperationResult{}, err
@@ -57,6 +66,23 @@ func (a *MeshEnrollmentAdministrator) QueueNative(ctx context.Context, email, ke
 	var job quotaescrow.ControlJob
 	err = a.manager.Coordinator.DB.First(&job, "id = ?", id).Error
 	if err == nil {
+		if job.CancelRequested {
+			_, _, err := a.manager.Coordinator.Resume(ctx, id)
+			return MeshOperationResult{Operation: id, Pending: true}, err
+		}
+		if !job.Complete && job.PolicyJSON == "" {
+			var plan quotaescrow.ControlPlan
+			preflightErr := meshReportRead(a.manager.Local.DB, func(tx *gorm.DB) error {
+				_, err := CaptureMeshHistorical(tx, a.manager.Local.Owner, []string{email})
+				return err
+			})
+			if json.Unmarshal([]byte(job.PlanJSON), &plan) != nil {
+				return MeshOperationResult{}, errors.New("invalid saved native enrollment plan")
+			}
+			if preflightErr != nil || (plan.InitialStates != nil && plan.InitialStates[a.manager.Local.Owner][email] != expectedState) {
+				return MeshOperationResult{Operation: id, Pending: true}, a.manager.Coordinator.CancelEnrollment(ctx, id)
+			}
+		}
 		// A lost reply is a lookup of the original intent, including after
 		// normal renewals/resets have changed the current client settings.
 		var saved quotaescrow.ControlTarget
@@ -68,6 +94,15 @@ func (a *MeshEnrollmentAdministrator) QueueNative(ctx context.Context, email, ke
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return MeshOperationResult{}, err
 	} else {
+		// Resolve old pending node resets/configuration before preparing ANY
+		// child. Otherwise the child barrier prevents that legacy reset from
+		// completing and the parent can never capture an unambiguous baseline.
+		if err := meshReportRead(a.manager.Local.DB, func(tx *gorm.DB) error {
+			_, err := CaptureMeshHistorical(tx, a.manager.Local.Owner, []string{email})
+			return err
+		}); err != nil {
+			return MeshOperationResult{}, err
+		}
 		var client model.ClientRecord
 		if err := a.manager.Local.DB.First(&client, "email = ?", email).Error; err != nil {
 			return MeshOperationResult{}, err
