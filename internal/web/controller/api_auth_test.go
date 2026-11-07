@@ -79,6 +79,8 @@ func newAPIAuthTestEngine(t *testing.T) (*gin.Engine, *APIController) {
 		c.JSON(http.StatusOK, gin.H{"reached": true})
 	})
 	api.POST("/clients/meshEnroll", (&ClientController{}).meshEnroll)
+	api.POST("/clients/meshDevice", (&ClientController{}).meshDevice)
+	api.POST("/clients/meshAccounts", (&ClientController{}).meshAccounts)
 	return engine, a
 }
 
@@ -155,6 +157,8 @@ func TestNodeSyncScopeUsesFullPathPatterns(t *testing.T) {
 		{"update panel forbidden", http.MethodPost, "/panel/api/server/updatePanel", http.StatusForbidden},
 		{"mesh administrative change forbidden", http.MethodPost, "/panel/api/clients/meshPolicy/alice", http.StatusForbidden},
 		{"initial mesh enrollment forbidden", http.MethodPost, "/panel/api/clients/meshEnroll", http.StatusForbidden},
+		{"mesh device membership forbidden", http.MethodPost, "/panel/api/clients/meshDevice", http.StatusForbidden},
+		{"mesh parent accounting forbidden", http.MethodPost, "/panel/api/clients/meshAccounts", http.StatusForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

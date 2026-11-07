@@ -13,8 +13,9 @@ import (
 )
 
 type meshReportScope struct {
-	Epoch   string
-	Pending bool
+	Epoch         string
+	LifetimeEpoch string
+	Pending       bool
 }
 
 func meshReportRead(db *gorm.DB, read func(*gorm.DB) error) error {
@@ -37,12 +38,14 @@ func meshReportScopes(db *gorm.DB) (map[string]meshReportScope, error) {
 				return nil, err
 			}
 			epochs := map[string]string{}
+			lifetimeEpochs := map[string]string{}
 			for _, record := range records {
 				var p quotaescrow.Policy
 				if json.Unmarshal([]byte(record.PolicyJSON), &p) != nil || p.Subscription != record.Subscription || p.Epoch == "" {
 					return nil, errors.New("invalid mesh reporting policy")
 				}
 				epochs[record.Subscription] = p.Epoch
+				lifetimeEpochs[record.Subscription] = p.Epoch
 				if p.Version > 0 {
 					epochs[record.Subscription] += "/cycle/" + strconv.FormatUint(p.ResetGeneration, 10)
 				}
@@ -51,7 +54,7 @@ func meshReportScopes(db *gorm.DB) (map[string]meshReportScope, error) {
 				if epochs[binding.Subscription] == "" {
 					return nil, errors.New("mesh reporting policy missing")
 				}
-				out[binding.Email] = meshReportScope{Epoch: epochs[binding.Subscription]}
+				out[binding.Email] = meshReportScope{Epoch: epochs[binding.Subscription], LifetimeEpoch: lifetimeEpochs[binding.Subscription]}
 			}
 		}
 	}

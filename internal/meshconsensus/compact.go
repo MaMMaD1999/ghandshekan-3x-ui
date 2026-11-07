@@ -18,6 +18,20 @@ type policyValue struct {
 	AlreadyBilled          int64
 	Disabled, Unlimited    bool
 	ScheduledThrough       int64
+	AliasHash              string `json:",omitempty"`
+}
+
+func (s *subscription) rememberAliases(aliases quotaescrow.AliasCatalog) {
+	if aliases == nil {
+		return
+	}
+	if s.AliasSets == nil {
+		s.AliasSets = map[string]quotaescrow.AliasCatalog{}
+	}
+	h := digest(aliases)
+	if _, exists := s.AliasSets[h]; !exists {
+		s.AliasSets[h] = copyJSON(aliases)
+	}
 }
 
 func compactResult(c Command, out Result) applied {
@@ -26,6 +40,9 @@ func compactResult(c Command, out Result) applied {
 		u, p := out.Update, out.Update.Next
 		a.Subscription = p.Subscription
 		a.Value = &policyValue{ID: u.ID, Kind: u.Kind, PreviousHash: u.PreviousHash, Version: p.Version, Generation: p.ResetGeneration, Limit: p.Limit, ExpiresAt: p.ExpiresAt, AlreadyBilled: p.AlreadyBilled, Disabled: p.Disabled, Unlimited: p.Unlimited, ScheduledThrough: p.ScheduledThrough}
+		if p.Aliases != nil {
+			a.Value.AliasHash = digest(p.Aliases)
+		}
 		a.Result.Update = nil
 	}
 	return a
@@ -44,6 +61,13 @@ func (a applied) result(subscriptions map[string]subscription) Result {
 	p.Version, p.ResetGeneration = v.Version, v.Generation
 	p.Limit, p.ExpiresAt, p.AlreadyBilled = v.Limit, v.ExpiresAt, v.AlreadyBilled
 	p.Disabled, p.Unlimited, p.ScheduledThrough = v.Disabled, v.Unlimited, v.ScheduledThrough
+	if v.AliasHash != "" {
+		aliases, ok := s.AliasSets[v.AliasHash]
+		if !ok || digest(aliases) != v.AliasHash {
+			return Result{Error: "operation receipt lost its alias catalog"}
+		}
+		p.Aliases = copyJSON(aliases)
+	}
 	return Result{Update: &quotaescrow.PolicyUpdate{ID: v.ID, Kind: v.Kind, PreviousHash: v.PreviousHash, Next: p}}
 }
 
@@ -61,7 +85,7 @@ func validateTimerCommand(c Command) error {
 		}
 		return nil
 	}
-	if c.Patch == nil || c.Patch.ScheduledAt <= 0 || c.ID != ScheduledOperationID(c.Subscription, c.Patch.ScheduledAt) || c.Registration != nil || c.ExpectedHash != "" || !reflect.DeepEqual(c.Target, quotaescrow.ControlTarget{}) || !reflect.DeepEqual(*c.Patch, PolicyPatch{ScheduledAt: c.Patch.ScheduledAt}) {
+	if c.Patch == nil || c.Patch.ScheduledAt <= 0 || c.ID != ScheduledOperationID(c.Subscription, c.Patch.ScheduledAt) || c.Registration != nil || c.Alias != nil || c.AliasBatch != nil || c.ExpectedHash != "" || !reflect.DeepEqual(c.Target, quotaescrow.ControlTarget{}) || !reflect.DeepEqual(*c.Patch, PolicyPatch{ScheduledAt: c.Patch.ScheduledAt}) {
 		return errors.New("invalid canonical timer operation")
 	}
 	return nil

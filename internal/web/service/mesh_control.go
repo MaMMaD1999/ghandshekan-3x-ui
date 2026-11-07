@@ -169,6 +169,15 @@ func meshPendingAliases(db *gorm.DB) (map[string]bool, error) {
 			for _, b := range bindings {
 				result[b.Email] = true
 			}
+			var updates []quotaescrow.PolicyUpdate
+			if err := json.Unmarshal([]byte(r.PendingUpdatesJSON), &updates); err != nil {
+				return nil, err
+			}
+			if len(bindings) > 0 && len(updates) > 0 {
+				for email := range updates[len(updates)-1].Next.Aliases[bindings[0].Owner] {
+					result[email] = true
+				}
+			}
 		}
 	}
 	return result, nil

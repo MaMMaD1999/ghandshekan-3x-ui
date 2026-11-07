@@ -60,6 +60,20 @@ func (c *MeshControl) ApplySharedUpdates(ctx context.Context, subscription strin
 		}
 		emails = append(emails, b.Email)
 	}
+	// Include newly authorized aliases in the durable fence before inspecting
+	// or baselining them. Settlement below still observes only existing meters.
+	next := updates[len(updates)-1].Next
+	if next.Aliases != nil {
+		seen := map[string]bool{}
+		for _, email := range emails {
+			seen[email] = true
+		}
+		for email := range next.Aliases[c.Owner] {
+			if !seen[email] {
+				emails = append(emails, email)
+			}
+		}
+	}
 	needed = false
 	if err := c.transaction(func(tx *gorm.DB) error {
 		var err error
@@ -89,7 +103,8 @@ func (c *MeshControl) ApplySharedUpdates(ctx context.Context, subscription strin
 	}
 	if err := c.transaction(func(tx *gorm.DB) error {
 		store := quotaescrow.NewStore(tx)
-		for _, email := range emails {
+		for _, binding := range bindings {
+			email := binding.Email
 			var local model.LocalUsage
 			if err := tx.First(&local, "email = ?", email).Error; err != nil {
 				return err
@@ -101,6 +116,11 @@ func (c *MeshControl) ApplySharedUpdates(ctx context.Context, subscription strin
 		policy, kind, err := store.CommitSharedUpdates(subscription, c.Owner, c.Key)
 		if err != nil {
 			return err
+		}
+		if policy.Aliases != nil {
+			if _, err := bindAuthorizedMeshAliases(tx, policy, c.Owner); err != nil {
+				return err
+			}
 		}
 		return commitMeshClientPolicy(tx, policy, kind, emails)
 	}); err != nil {

@@ -1557,6 +1557,21 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'POST',
+        path: '/panel/api/clients/meshDevice',
+        summary:
+          'Attach or revoke one logical device in an enrolled shared subscription. Requires its configured enrollment manager, administrator authorization and a stable Idempotency-Key. Attachment discovers all copies through signed inventories; each new copy must already exist disabled, have no historical traffic, and belong to an enrolled traffic member. Revocation covers every committed copy even when a peer is offline. This preserves quota, expiry, reset generation and lifetime counters. Retrying the same key and body returns the original decision. majorityCommitted confirms the policy decision; applicationPending does not imply that every offline member has applied it. Credential replacement and new traffic members require a separate transition.',
+        body: '{\n  "subscription": "account-123",\n  "email": "alice-phone",\n  "revoke": true\n}',
+        response: '{\n  "success": true,\n  "obj": { "operation": "...", "majorityCommitted": true, "applicationPending": true }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/meshAccounts',
+        summary:
+          'Administrator-only consistent accounting snapshot for 1–100 explicitly enrolled parent subscriptions. Returns policy identity, billing generation and cumulative per-member counters without signing keys or credentials. Merge each owner once across mirrors; never multiply a parent total by its device count. pending means a cutover is unfinished. An unavailable/invalid parent returns an error, never a zero usage report. parentAccountingVersion: 1 in the mesh capabilities advertises this contract.',
+        body: '{\n  "subscriptions": ["account-123"]\n}',
+      },
+      {
+        method: 'POST',
         path: '/panel/api/clients/updateTraffic/:email',
         summary:
           'Manually adjust a client’s upload + download counters. Useful for migrations from external accounting systems.',

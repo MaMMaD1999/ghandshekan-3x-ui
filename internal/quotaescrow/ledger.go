@@ -48,6 +48,7 @@ type Policy struct {
 	ControlKeys      map[string][]byte `json:"controlKeys,omitempty"`
 	ResetSchedule    *ResetSchedule    `json:"resetSchedule,omitempty"`
 	ScheduledThrough int64             `json:"scheduledThrough,omitempty"`
+	Aliases          AliasCatalog      `json:"aliases,omitempty"`
 }
 
 // Row is a single-writer, monotonically increasing cumulative snapshot. Used
@@ -89,6 +90,9 @@ func add(a, b int64) (int64, error) {
 	return a + b, nil
 }
 func New(p Policy) (*Ledger, error) {
+	if err := validateAliasCatalog(p); err != nil {
+		return nil, err
+	}
 	if err := p.ResetSchedule.Validate(); err != nil {
 		return nil, err
 	}

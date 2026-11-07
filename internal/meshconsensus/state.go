@@ -49,6 +49,9 @@ type Command struct {
 	ExpectedHash string                    `json:"expectedHash,omitempty"`
 	Target       quotaescrow.ControlTarget `json:"target"`
 	Patch        *PolicyPatch              `json:"patch,omitempty"`
+	Alias        *quotaescrow.AliasPatch   `json:"alias,omitempty"`
+	AliasBatch   []quotaescrow.AliasPatch  `json:"aliasBatch,omitempty"`
+	DeviceHash   string                    `json:"deviceHash,omitempty"`
 }
 type PolicyPatch struct {
 	Limit     *int64 `json:"limit,omitempty"`
@@ -72,10 +75,11 @@ type applied struct {
 	Value        *policyValue `json:"value,omitempty"`
 }
 type subscription struct {
-	Base    Registration               `json:"base"`
-	Updates []quotaescrow.PolicyUpdate `json:"updates"`
-	TimerID string                     `json:"timerID,omitempty"`
-	Timer   *applied                   `json:"timer,omitempty"`
+	Base      Registration                        `json:"base"`
+	Updates   []quotaescrow.PolicyUpdate          `json:"updates"`
+	TimerID   string                              `json:"timerID,omitempty"`
+	Timer     *applied                            `json:"timer,omitempty"`
+	AliasSets map[string]quotaescrow.AliasCatalog `json:"aliasSets,omitempty"`
 }
 type state struct {
 	Epoch         string                  `json:"epoch"`
@@ -169,7 +173,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 
 func (f *FSM) apply(c Command) Result {
 	if c.Registration != nil {
-		if c.Subscription != "" || c.Kind != "" || c.ExpectedHash != "" || c.Patch != nil {
+		if c.Subscription != "" || c.Kind != "" || c.ExpectedHash != "" || c.Patch != nil || c.Alias != nil || c.AliasBatch != nil || c.DeviceHash != "" {
 			return Result{Error: "mixed registration and mutation"}
 		}
 		if err := f.validRegistration(*c.Registration); err != nil {
@@ -182,7 +186,9 @@ func (f *FSM) apply(c Command) Result {
 			}
 			return Result{}
 		}
-		f.data.Subscriptions[p.Subscription] = subscription{Base: copyJSON(*c.Registration)}
+		s := subscription{Base: copyJSON(*c.Registration)}
+		s.rememberAliases(p.Aliases)
+		f.data.Subscriptions[p.Subscription] = s
 		return Result{}
 	}
 	sub, ok := f.data.Subscriptions[c.Subscription]
@@ -193,8 +199,32 @@ func (f *FSM) apply(c Command) Result {
 	if len(sub.Updates) > 0 {
 		p = sub.Updates[len(sub.Updates)-1].Next
 	}
-	if (c.Patch == nil || c.ExpectedHash != "") && c.ExpectedHash != quotaescrow.PolicyHash(p) {
+	if ((c.Patch == nil && c.Alias == nil && c.AliasBatch == nil) || c.ExpectedHash != "") && c.ExpectedHash != quotaescrow.PolicyHash(p) {
 		return Result{Error: "policy changed; refresh before updating"}
+	}
+	if c.Alias != nil || c.AliasBatch != nil {
+		if c.Kind != "alias" || c.Patch != nil || !reflect.DeepEqual(c.Target, quotaescrow.ControlTarget{}) {
+			return Result{Error: "mixed alias and quota mutation"}
+		}
+		patches := c.AliasBatch
+		if c.AliasBatch != nil && (len(patches) == 0 || c.DeviceHash != quotaescrow.DeviceAuthorizationHash(p, patches[0].Email)) {
+			return Result{Error: "device membership changed; refresh before updating"}
+		}
+		if c.Alias != nil {
+			if c.AliasBatch != nil {
+				return Result{Error: "mixed alias and alias batch"}
+			}
+			patches = []quotaescrow.AliasPatch{*c.Alias}
+		}
+		u, err := quotaescrow.DraftAliasChanges(p, c.ID, patches)
+		if err != nil {
+			return Result{Error: err.Error()}
+		}
+		f.commitUpdate(c.Subscription, sub, u)
+		return Result{Update: &u}
+	}
+	if c.DeviceHash != "" {
+		return Result{Error: "unexpected device fingerprint"}
 	}
 	target := c.Target
 	if c.Patch != nil {
@@ -247,14 +277,19 @@ func (f *FSM) apply(c Command) Result {
 	if err != nil {
 		return Result{Error: err.Error()}
 	}
+	f.commitUpdate(c.Subscription, sub, u)
+	return Result{Update: &u}
+}
+
+func (f *FSM) commitUpdate(id string, sub subscription, u quotaescrow.PolicyUpdate) {
+	sub.rememberAliases(u.Next.Aliases)
 	sub.Updates = append(sub.Updates, u)
 	if len(sub.Updates) > 2 {
 		// Keep the predecessor for exact shape validation and the latest value
 		// for certification. Old manual retry results retain their small values.
 		sub.Updates = copyJSON(sub.Updates[len(sub.Updates)-2:])
 	}
-	f.data.Subscriptions[c.Subscription] = sub
-	return Result{Update: &u}
+	f.data.Subscriptions[id] = sub
 }
 
 func adjustPositive(value, delta, ceiling int64) (int64, error) {
@@ -414,6 +449,11 @@ func (f *FSM) Restore(r io.ReadCloser) error {
 		}
 		if err := f.validRegistration(s.Base); err != nil {
 			return err
+		}
+		for hash, aliases := range s.AliasSets {
+			if aliases == nil || digest(aliases) != hash {
+				return errors.New("invalid snapshot alias catalog")
+			}
 		}
 		p := s.Base.Policy
 		seen := map[string]bool{}

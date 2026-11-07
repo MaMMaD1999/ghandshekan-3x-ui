@@ -265,6 +265,9 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 				return errors.New("checkpoint policy has no bindings")
 			}
 			for _, binding := range state.Bindings {
+				if err := validateMeshBindingAuthorization(policy, binding); err != nil {
+					return err
+				}
 				counter, ok := byEmail[binding.Email]
 				if !ok || counter.Source == "" || counter.Billed < 0 {
 					return errors.New("checkpoint local meter missing")
@@ -370,7 +373,8 @@ func (c *MeshCheckpoint) advanceLocked(source *gorm.DB, scope string) error {
 				bindings[b.Email] = b
 			}
 			for _, b := range old.Bindings {
-				if bindings[b.Email] != b {
+				next, exists := bindings[b.Email]
+				if !exists || next.Email != b.Email || next.Owner != b.Owner || next.Subscription != b.Subscription || next.AuthorizationRevision < b.AuthorizationRevision || (next.AuthorizationRevision == b.AuthorizationRevision && next != b) {
 					return errors.New("enrolled alias disappeared or changed owner")
 				}
 				counter := current.Local[b.Email]

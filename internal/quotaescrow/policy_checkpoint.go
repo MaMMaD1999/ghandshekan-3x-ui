@@ -22,7 +22,7 @@ func VerifyPolicyCheckpointShape(previous Policy, u PolicyUpdate) error {
 	if _, err := New(u.Next); err != nil {
 		return err
 	}
-	if previous.ControlEpoch == "" || previous.Version == 0 || u.Next.Version <= previous.Version || u.ID == "" || len(u.ID) > 128 || (u.Kind != "renew" && u.Kind != "reset" && u.Kind != "scheduled-reset") {
+	if previous.ControlEpoch == "" || previous.Version == 0 || u.Next.Version <= previous.Version || u.ID == "" || len(u.ID) > 128 || (u.Kind != "renew" && u.Kind != "reset" && u.Kind != "scheduled-reset" && u.Kind != "alias") {
 		return errors.New("invalid majority policy checkpoint")
 	}
 	if b, err := hex.DecodeString(u.PreviousHash); err != nil || len(b) != 32 {
@@ -37,6 +37,12 @@ func VerifyPolicyCheckpointShape(previous Policy, u PolicyUpdate) error {
 	expected.Limit, expected.ExpiresAt = u.Next.Limit, u.Next.ExpiresAt
 	expected.Disabled, expected.Unlimited = u.Next.Disabled, u.Next.Unlimited
 	expected.ResetGeneration = u.Next.ResetGeneration
+	if !reflect.DeepEqual(previous.Aliases, u.Next.Aliases) {
+		if err := verifyAliasAdvance(previous, u.Next, false); err != nil {
+			return err
+		}
+		expected.Aliases = clone(u.Next.Aliases)
+	}
 	if expected.ResetGeneration != previous.ResetGeneration {
 		expected.AlreadyBilled = 0
 	}

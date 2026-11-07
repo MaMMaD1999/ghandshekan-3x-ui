@@ -358,6 +358,15 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 				policy.Manager = c.Owner
 				policy.Disabled, policy.Unlimited = target.Disabled, target.Unlimited
 				policy.ControlEpoch, policy.ControlKeys = c.ControlEpoch, clone(c.ControlKeys)
+				if c.ControlEpoch != "" {
+					policy.Aliases = AliasCatalog{}
+					for owner, claims := range plan.Claims {
+						policy.Aliases[owner] = map[string]AliasAuthorization{}
+						for _, claim := range claims {
+							policy.Aliases[owner][claim.Email] = AliasAuthorization{Fingerprint: claim.Fingerprint, Revision: 1}
+						}
+					}
+				}
 			}
 		}
 		if _, err := New(policy); err != nil {

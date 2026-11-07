@@ -458,3 +458,52 @@ The public capability flags require an admitted majority runtime. A legacy priva
 coordinator alone no longer advertises independent mesh control to the app adapter.
 These changes do not enable production enrollment or remove the membership-adapter
 requirements above.
+
+### Versioned device membership (2026-11-07)
+
+New majority enrollments pin a catalog of physical alias fingerprints. A device
+can have copies on several already enrolled traffic members; one majority command
+attaches or revokes all discovered copies together. The command compares the
+whole device membership so a concurrent new copy cannot escape a stale revocation.
+Quota, expiry, reset generation, lifetime epoch, historical billing and existing
+meter watermarks remain unchanged. Revocation tombstones cannot be dropped by a
+returning peer or restored checkpoint. Renewal does not revive revoked devices.
+
+The administrator-only `/panel/api/clients/meshDevice` endpoint requires the
+enrollment manager and a stable `Idempotency-Key`. It saves the complete command
+before submission. A lost response reuses that command, including after process
+restart; it never rebuilds an attach from a later policy. Offline revocation uses
+the committed catalog and does not require live inspection. `majorityCommitted`
+is separate from `applicationPending`, since disconnected members may still need
+to catch up. Node-sync credentials cannot invoke this endpoint.
+
+New physical copies must already be provisioned disabled with no historical
+traffic, under the same known member keys. Runtime application fences and drains
+the parent subscription, settles existing meters, then commits policy and local
+bindings atomically. That currently interrupts other devices of the same parent
+briefly; unrelated subscriptions are unaffected. Invalid or concurrently modified
+provisioning leaves a visible pending barrier rather than discarding usage. The
+manager must complete or repair provisioning before retrying that operation.
+
+Snapshots store each distinct catalog once and retain exact original results for
+manual operation IDs. Tests cover multi-member atomic revocation, stale retries,
+400 intervening renewals, compact catch-up, counter preservation, changed credentials,
+unauthorized callers, and actual core download termination after revocation.
+Inventory membership uses the lifetime epoch; consumption reports separately retain
+the reset generation, so resetting cards cannot invalidate a device identity.
+
+This is the membership primitive, not automatic app enrollment. App-parent billing
+integration, normal credential/attachment replacement, and adding a new traffic
+owner still require explicit transitions. Existing policies without a catalog are
+readable but cannot silently gain mutable device membership. Production enrollment
+remains disabled until those adapters and deployment acceptance are complete.
+
+The administrator-only `/panel/api/clients/meshAccounts` read contract returns
+explicit parent policy identities and cumulative per-member usage, without any
+signing keys, alias credentials or per-device copies of the global total. It reads
+the requested parents in one database snapshot. Missing/corrupt parents fail the
+whole request; an unfinished barrier is reported as pending. The app must pin the
+parent's lifetime identity, merge each member's sequence once across mirrors, and
+retain old-cycle lifetime bytes without charging them to a newer reset generation.
+The advertised `parentAccountingVersion: 1` describes this read contract only; it
+does not claim that automatic app enrollment or balance cutover is installed.

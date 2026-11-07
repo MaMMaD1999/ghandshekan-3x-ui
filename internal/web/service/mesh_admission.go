@@ -61,16 +61,18 @@ func MeshBlockedEmails(db *gorm.DB, now int64) (map[string]bool, error) {
 		return nil, err
 	}
 	decisions := map[[2]string]bool{}
+	policies := map[[2]string]quotaescrow.Policy{}
 	store := quotaescrow.NewStore(db)
 	for _, b := range bindings {
 		key := [2]string{b.Subscription, b.Owner}
 		deny, known := decisions[key]
 		if !known {
-			remaining, err := store.Admission(b.Subscription, b.Owner, now)
+			remaining, policy, err := store.AdmissionPolicy(b.Subscription, b.Owner, now)
 			deny = err != nil || remaining <= 0
 			decisions[key] = deny
+			policies[key] = policy
 		}
-		if deny {
+		if deny || !meshAliasAuthorized(policies[key], b) {
 			blocked[b.Email] = true
 		}
 	}
@@ -102,9 +104,9 @@ func MeshClientAllowed(email string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	n, err := quotaescrow.NewStore(db).Admission(bindings[0].Subscription, bindings[0].Owner, now)
+	n, policy, err := quotaescrow.NewStore(db).AdmissionPolicy(bindings[0].Subscription, bindings[0].Owner, now)
 	if err != nil {
 		return false, nil
 	}
-	return n > 0, nil
+	return n > 0 && meshAliasAuthorized(policy, bindings[0]), nil
 }

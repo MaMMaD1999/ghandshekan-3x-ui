@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
 	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
@@ -21,9 +22,13 @@ import (
 // still require the majority's policy log; this service cannot renew/reset
 // them or bypass the pinned membership registry.
 type MeshEnrollmentAdministrator struct {
-	manager *MeshAdministrator
-	builder quotaescrow.PlanBuilder
-	mu      sync.Mutex
+	manager      *MeshAdministrator
+	builder      quotaescrow.PlanBuilder
+	mu           sync.Mutex
+	aliasMu      sync.Mutex
+	aliasPolicy  func(string) (quotaescrow.Policy, error)
+	aliasExecute func(context.Context, meshconsensus.Command) (meshconsensus.Result, error)
+	aliasSync    func(context.Context, string, uint64) error
 }
 
 var activeMeshEnrollment atomic.Pointer[MeshEnrollmentAdministrator]
@@ -60,7 +65,11 @@ func OpenMeshEnrollmentAdministrator(c *MeshConfig, local *MeshControl, transpor
 		_, err = quorum.Node.Execute(ctx, meshconsensus.Command{ID: "enroll-" + quotaescrow.PolicyHash(p), Registration: &r})
 		return err
 	}
-	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}}, nil
+	if err := coordinator.DB.AutoMigrate(&meshAliasJob{}); err != nil {
+		a.Close()
+		return nil, err
+	}
+	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}, aliasPolicy: quorum.Node.FSM.Policy, aliasExecute: quorum.Node.Execute, aliasSync: quorum.synchronize}, nil
 }
 
 func (a *MeshEnrollmentAdministrator) Close() {
@@ -72,7 +81,25 @@ func (a *MeshEnrollmentAdministrator) Close() {
 }
 
 func (a *MeshEnrollmentAdministrator) Run(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cursor := ""
+		for ctx.Err() == nil {
+			bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
+			cursor = a.resumeAliasJobs(bounded, cursor)
+			cancel()
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
 	a.manager.Run(ctx)
+	<-done
 }
 
 func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrollmentInput, key string) (MeshOperationResult, error) {
@@ -164,5 +191,9 @@ func QueueMeshEnrollment(ctx context.Context, input MeshEnrollmentInput, key str
 func MeshCapabilities() map[string]any {
 	administrator := activeMeshAdministrator.Load()
 	runtime := administrator != nil && administrator.Quorum != nil && meshCanAdmit()
-	return map[string]any{"protocolVersion": 1, "runtimeReady": runtime, "enrollmentReady": runtime && activeMeshEnrollment.Load() != nil, "usageMode": "shared", "independentCutoff": runtime}
+	caps := map[string]any{"protocolVersion": 1, "runtimeReady": runtime, "enrollmentReady": runtime && activeMeshEnrollment.Load() != nil, "usageMode": "shared", "independentCutoff": runtime}
+	if runtime {
+		caps["parentAccountingVersion"] = 1
+	}
+	return caps
 }

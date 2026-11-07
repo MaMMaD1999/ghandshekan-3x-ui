@@ -25,14 +25,21 @@ import (
 // Exercises the mounted private control endpoint, actual protocol/task drain,
 // scheduled traffic collector and durable checkpoint rather than test callbacks.
 func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
-	testMeshControlRealLifecycle(t, false)
+	testMeshControlRealLifecycle(t, false, false)
 }
 
 func TestMeshSharedRealLifecycleWhileDownloading(t *testing.T) {
-	testMeshControlRealLifecycle(t, true)
+	testMeshControlRealLifecycle(t, true, false)
 }
 
-func testMeshControlRealLifecycle(t *testing.T, shared bool) {
+// Consensus authorization is exercised separately by the multi-member tests.
+// This test supplies majority-signed policies to the actual runtime and checks
+// that device revocation terminates a live stream, not just future connections.
+func TestMeshDeviceAttachRevokeRealStream(t *testing.T) {
+	testMeshControlRealLifecycle(t, true, true)
+}
+
+func testMeshControlRealLifecycle(t *testing.T, shared, devices bool) {
 	core := os.Getenv("MESH_TEST_CORE")
 	if core == "" {
 		t.Skip("MESH_TEST_CORE not set")
@@ -66,11 +73,16 @@ func testMeshControlRealLifecycle(t *testing.T, shared bool) {
 	})
 	p.start()
 	ib := vlessInbound("mesh-control", inboundPort, nil, vlessClient("control-user"), vlessClient("control-other"))
+	if devices {
+		tablet := vlessClient("control-tablet")
+		tablet["enable"] = false
+		ib = vlessInbound("mesh-control", inboundPort, nil, vlessClient("control-user"), vlessClient("control-other"), tablet)
+	}
 	ib["listen"] = "127.0.0.1"
 	p.call(http.MethodPost, "/panel/api/inbounds/add", ib)
 	p.call(http.MethodPost, "/panel/api/server/stopXrayService", nil)
 	p.stop()
-	var owner, fingerprint string
+	var owner, fingerprint, tabletFingerprint string
 	var authority ed25519.PrivateKey
 	var config service.MeshConfig
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
@@ -85,6 +97,12 @@ func testMeshControlRealLifecycle(t *testing.T, shared bool) {
 			t.Fatal(err)
 		}
 		authority, config = installTestMeshIdentity(t, p, owner, key)
+		if devices {
+			tabletFingerprint, err = service.MeshAliasFingerprint(database.GetDB(), "control-tablet")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 	})
 	p.start()
 	t.Cleanup(func() { _, _ = p.try(http.MethodPost, "/panel/api/server/stopXrayService", nil) })
@@ -188,7 +206,19 @@ func testMeshControlRealLifecycle(t *testing.T, shared bool) {
 		policy.Grants[owner] = 0
 	}
 	var updates []quotaescrow.PolicyUpdate
-	for _, kind := range []string{"enroll", "renew", "reset"} {
+	kinds := []string{"enroll", "renew", "reset"}
+	voters := map[string]ed25519.PrivateKey{owner: key}
+	if devices {
+		policy.ControlEpoch = "device-runtime-test"
+		policy.ControlKeys = map[string][]byte{owner: pub}
+		for _, id := range []string{"voter-b", "voter-c"} {
+			public, private, _ := ed25519.GenerateKey(rand.Reader)
+			policy.ControlKeys[id], voters[id] = public, private
+		}
+		policy.Aliases = quotaescrow.AliasCatalog{owner: {"control-user": {Fingerprint: fingerprint, Revision: 1}}}
+		kinds = []string{"enroll"}
+	}
+	for _, kind := range kinds {
 		if shared && kind != "enroll" {
 			done := startStream()
 			u, err := quotaescrow.SignPolicyUpdate(policy, "real-shared-"+kind, kind, policy.Limit, policy.ExpiresAt, authority)
@@ -283,4 +313,86 @@ func testMeshControlRealLifecycle(t *testing.T, shared bool) {
 			}
 		})
 	}
+	if !devices {
+		return
+	}
+	applyDevicePolicy := func(update quotaescrow.PolicyUpdate) {
+		t.Helper()
+		update.Votes = map[string][]byte{}
+		for _, id := range []string{owner, "voter-b"} {
+			update.Votes[id] = quotaescrow.PolicyUpdateVote(update, voters[id])
+		}
+		if _, err := privateClient.UpdatePolicy(context.Background(), owner, quotaescrow.PolicyUpdateRequest{Subscription: policy.Subscription, Updates: []quotaescrow.PolicyUpdate{update}}); err != nil {
+			t.Fatal(err)
+		}
+		policy = update.Next
+	}
+	add, err := quotaescrow.DraftAliasChange(policy, "attach-tablet", quotaescrow.AliasPatch{Owner: owner, Email: "control-tablet", Fingerprint: tabletFingerprint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyDevicePolicy(add)
+	tablet := quotaProxyClient(t, core, inboundPort, newUUID("control-tablet"))
+	var response *http.Response
+	eventually(t, 8*time.Second, "new device admitted", func() (bool, string) {
+		var err error
+		response, err = tablet.Get(target.URL)
+		return err == nil, fmt.Sprint(err)
+	})
+	if _, err := io.ReadFull(response.Body, make([]byte, 32<<10)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { io.Copy(io.Discard, response.Body); response.Body.Close(); close(done) }()
+	revoke, err := quotaescrow.DraftAliasChange(policy, "revoke-tablet", quotaescrow.AliasPatch{Owner: owner, Email: "control-tablet", Fingerprint: tabletFingerprint, ExpectedRevision: 1, Revoked: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyDevicePolicy(revoke)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("revoked device's existing download survived")
+	}
+	var usedAfterRevoke int64
+	withDB(func() {
+		ledger, err := quotaescrow.NewStore(database.GetDB()).Load(policy.Subscription)
+		if err != nil {
+			t.Fatal(err)
+		}
+		usedAfterRevoke, err = ledger.Billed()
+		if err != nil || usedAfterRevoke <= policy.AlreadyBilled {
+			t.Fatal("revocation lost drained device traffic", usedAfterRevoke, err)
+		}
+	})
+	renew, err := quotaescrow.DraftPolicyChange(policy, "renew-after-device-revoke", "renew", quotaescrow.ControlTarget{Limit: 2 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyDevicePolicy(renew)
+	// Replay a valid older attach certificate after revocation and renewal.
+	add.Votes = map[string][]byte{}
+	for _, id := range []string{owner, "voter-b"} {
+		add.Votes[id] = quotaescrow.PolicyUpdateVote(add, voters[id])
+	}
+	_, _ = privateClient.UpdatePolicy(context.Background(), owner, quotaescrow.PolicyUpdateRequest{Subscription: policy.Subscription, Updates: []quotaescrow.PolicyUpdate{add}})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, nil)
+	if r, err := tablet.Do(req); err == nil {
+		r.Body.Close()
+		t.Fatal("renewal or delayed attach resurrected revoked device")
+	}
+	withDB(func() {
+		ledger, err := quotaescrow.NewStore(database.GetDB()).Load(policy.Subscription)
+		if err != nil {
+			t.Fatal(err)
+		}
+		used, err := ledger.Billed()
+		if err != nil || used != usedAfterRevoke || !ledger.Policy().Aliases[owner]["control-tablet"].Revoked {
+			t.Fatal("renewal/replay altered stopped device consumption", used, usedAfterRevoke, err)
+		}
+	})
+	before := otherBytes.bytes.Load()
+	eventually(t, time.Second, "unrelated stream survives device changes", func() (bool, string) { return otherBytes.bytes.Load() > before, "no bytes" })
 }

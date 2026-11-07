@@ -91,16 +91,24 @@ func (s *Store) ObserveMeter(subscription, owner, source string, key ed25519.Pri
 // Admission is local and does not depend on a successful master poll. An error
 // must fail closed at the runtime adapter, not grant unmetered access.
 func (s *Store) Admission(subscription, owner string, now int64) (int64, error) {
+	n, _, err := s.AdmissionPolicy(subscription, owner, now)
+	return n, err
+}
+
+// The decision and alias authorization must come from the same durable policy
+// read; a simultaneous revocation cannot be mixed with an earlier quota view.
+func (s *Store) AdmissionPolicy(subscription, owner string, now int64) (int64, Policy, error) {
 	var record Record
 	if err := s.db.First(&record, "subscription = ?", subscription).Error; err != nil {
-		return 0, err
+		return 0, Policy{}, err
 	}
 	if record.FrozenFor != "" || record.PausedFor != "" {
-		return 0, ErrFrozen
+		return 0, Policy{}, ErrFrozen
 	}
 	l, err := decodeRecord(record)
 	if err != nil {
-		return 0, err
+		return 0, Policy{}, err
 	}
-	return l.Available(owner, now)
+	n, err := l.Available(owner, now)
+	return n, l.Policy(), err
 }

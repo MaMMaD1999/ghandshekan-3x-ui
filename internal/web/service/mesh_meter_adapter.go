@@ -22,6 +22,9 @@ func ActivateMeshMeters(db *gorm.DB, p quotaescrow.Policy, owner string, emails 
 	if len(emails) == 0 || len(p.Keys[owner]) != ed25519.PublicKeySize {
 		return errors.New("missing local membership")
 	}
+	if p.Aliases != nil && len(p.Aliases[owner]) != len(emails) {
+		return errors.New("initial alias catalog differs from enrollment scope")
+	}
 	seen := map[string]bool{}
 	for _, email := range emails {
 		if email == "" || seen[email] {
@@ -36,6 +39,15 @@ func ActivateMeshMeters(db *gorm.DB, p quotaescrow.Policy, owner string, emails 
 		meters := make([]quotaescrow.Meter, 0, len(emails))
 		bindings := make([]model.MeshBinding, 0, len(emails))
 		for _, email := range emails {
+			var authorization quotaescrow.AliasAuthorization
+			if p.Aliases != nil {
+				var ok bool
+				authorization, ok = p.Aliases[owner][email]
+				fingerprint, err := MeshAliasFingerprint(tx, email)
+				if !ok || authorization.Revoked || err != nil || fingerprint != authorization.Fingerprint {
+					return errors.New("initial alias differs from authorized membership")
+				}
+			}
 			// Create only if absent; an existing monotonic source must never be reset.
 			initial := model.LocalUsage{Email: email, Source: rand.Text()}
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&initial).Error; err != nil {
@@ -49,7 +61,7 @@ func ActivateMeshMeters(db *gorm.DB, p quotaescrow.Policy, owner string, emails 
 				return errors.New("invalid durable local source")
 			}
 			meters = append(meters, quotaescrow.Meter{Subscription: p.Subscription, Owner: owner, Source: local.Source, Epoch: p.Epoch, Watermark: local.Billed})
-			bindings = append(bindings, model.MeshBinding{Email: email, Subscription: p.Subscription, Owner: owner})
+			bindings = append(bindings, model.MeshBinding{Email: email, Subscription: p.Subscription, Owner: owner, AuthorizationRevision: authorization.Revision, AuthorizationFingerprint: authorization.Fingerprint})
 		}
 		if err := quotaescrow.NewStore(tx).Activate(p, meters); err != nil {
 			return err

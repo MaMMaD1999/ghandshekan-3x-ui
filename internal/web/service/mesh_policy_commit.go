@@ -47,6 +47,13 @@ func commitMeshClientPolicy(tx *gorm.DB, p quotaescrow.Policy, kind string, emai
 	for _, client := range clients {
 		if p.Version > 0 {
 			client.Enable = !p.Disabled
+			if p.Aliases != nil {
+				var binding model.MeshBinding
+				if err := tx.First(&binding, "email = ?", client.Email).Error; err != nil {
+					return err
+				}
+				client.Enable = client.Enable && meshAliasAuthorized(p, binding)
+			}
 		}
 		byEmail[client.Email] = client
 		if err := tx.Model(&model.ClientRecord{}).Where("id = ?", client.Id).Updates(map[string]any{"total_gb": p.Limit, "expiry_time": p.ExpiresAt * 1000, "enable": client.Enable}).Error; err != nil {

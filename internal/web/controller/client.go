@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/entity"
@@ -86,6 +87,8 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/resetTraffic/:email", a.resetTrafficByEmail)
 	g.POST("/meshPolicy/:email", a.meshPolicy)
 	g.POST("/meshEnroll", a.meshEnroll)
+	g.POST("/meshDevice", a.meshDevice)
+	g.POST("/meshAccounts", a.meshAccounts)
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
 	g.POST("/clearIps/:email", a.clearIps)
@@ -685,6 +688,44 @@ func (a *ClientController) meshEnroll(c *gin.Context) {
 	if err == nil {
 		notifyClientsChanged()
 	}
+}
+
+func (a *ClientController) meshDevice(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+	var req service.MeshAliasInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	result, err := service.QueueMeshAlias(ctx, req, c.GetHeader("Idempotency-Key"))
+	jsonObj(c, result, err)
+	if err == nil {
+		notifyClientsChanged()
+	}
+}
+
+func (a *ClientController) meshAccounts(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	var req struct {
+		Subscriptions []string `json:"subscriptions"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	result, err := service.ReadMeshAccounts(database.GetDB(), req.Subscriptions)
+	jsonObj(c, result, err)
 }
 
 type trafficUpdateRequest struct {
