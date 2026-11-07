@@ -75,6 +75,9 @@ func newAPIAuthTestEngine(t *testing.T) (*gin.Engine, *APIController) {
 	api.POST("/clients/clientIpsByGuid", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"reached": true})
 	})
+	api.POST("/clients/meshPolicy/:email", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
 	return engine, a
 }
 
@@ -149,6 +152,7 @@ func TestNodeSyncScopeUsesFullPathPatterns(t *testing.T) {
 		{"reset inbound id parameter", http.MethodPost, "/panel/api/inbounds/42/resetTraffic", http.StatusOK},
 		{"client IP by guid endpoint", http.MethodPost, "/panel/api/clients/clientIpsByGuid", http.StatusOK},
 		{"update panel forbidden", http.MethodPost, "/panel/api/server/updatePanel", http.StatusForbidden},
+		{"mesh administrative change forbidden", http.MethodPost, "/panel/api/clients/meshPolicy/alice", http.StatusForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

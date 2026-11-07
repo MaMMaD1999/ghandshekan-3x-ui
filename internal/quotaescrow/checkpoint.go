@@ -27,6 +27,9 @@ func ValidateCheckpointAdvance(previous, current Record, archive *EpochArchive) 
 		return errors.New("conflicting checkpoint revision")
 	}
 	if old.policy.Epoch == next.policy.Epoch {
+		if old.policy.Version > 0 {
+			return validateSharedAdvance(previous, current, old, next)
+		}
 		if !reflect.DeepEqual(old.policy, next.policy) {
 			return errors.New("policy changed without epoch transition")
 		}

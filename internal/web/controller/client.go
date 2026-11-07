@@ -80,6 +80,7 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/bulkDetach", a.bulkDetach)
 	g.POST("/bulkResetTraffic", a.bulkResetTraffic)
 	g.POST("/resetTraffic/:email", a.resetTrafficByEmail)
+	g.POST("/meshPolicy/:email", a.meshPolicy)
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
 	g.POST("/clearIps/:email", a.clearIps)
@@ -230,6 +231,18 @@ func (a *ClientController) update(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		managed, result, err := service.TryMeshClientEdit(c.Request.Context(), email, req.Client, req.LimitHwid, c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			jsonObj(c, nil, err)
+			return
+		}
+		if managed {
+			jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), result, nil)
+			notifyClientsChanged()
+			return
+		}
+	}
 	inboundFilter := parseInboundIdsQuery(c.Query("inboundIds"))
 	needRestart, err := a.clientService.UpdateByEmail(&a.inboundService, email, req.Client, req.LimitHwid, inboundFilter...)
 	// Flagged before the error check: a partly-applied edit leaves the change
@@ -317,6 +330,21 @@ func (a *ClientController) setExternalLinks(c *gin.Context) {
 }
 
 func (a *ClientController) resetAllTraffics(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		handled, count, restart, err := service.ResetAllWithMesh(c.Request.Context(), c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			jsonObj(c, nil, err)
+			return
+		}
+		if handled {
+			jsonObj(c, gin.H{"affected": count}, nil)
+			if restart {
+				a.xrayService.SetToNeedRestart()
+			}
+			notifyClientsChanged()
+			return
+		}
+	}
 	needRestart, err := a.clientService.ResetAllTraffics()
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
@@ -544,6 +572,20 @@ func (a *ClientController) delOrphans(c *gin.Context) {
 
 func (a *ClientController) resetTrafficByEmail(c *gin.Context) {
 	email := c.Param("email")
+	// Node-sync tokens can replay legacy resets, but must never acquire the
+	// local authority key's privilege to issue a new mesh billing cycle.
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		managed, result, meshErr := service.TryMeshLifecycle(c.Request.Context(), email, "reset", c.GetHeader("Idempotency-Key"), nil, nil)
+		if meshErr != nil {
+			jsonMsg(c, I18nWeb(c, "somethingWentWrong"), meshErr)
+			return
+		}
+		if managed {
+			jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.resetInboundClientTrafficSuccess"), result, nil)
+			notifyClientsChanged()
+			return
+		}
+	}
 	needRestart, err := a.clientService.ResetTrafficByEmail(&a.inboundService, email)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
@@ -554,6 +596,37 @@ func (a *ClientController) resetTrafficByEmail(c *gin.Context) {
 		a.xrayService.SetToNeedRestart()
 	}
 	notifyClientsChanged()
+}
+
+func (a *ClientController) meshPolicy(c *gin.Context) {
+	var req struct {
+		Kind      string `json:"kind"`
+		Limit     *int64 `json:"limit"`
+		ExpiresAt *int64 `json:"expiresAt"`
+		Disabled  *bool  `json:"disabled"`
+		Unlimited *bool  `json:"unlimited"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	key := c.GetHeader("Idempotency-Key")
+	if key == "" {
+		jsonObj(c, nil, errors.New("Idempotency-Key is required for mesh lifecycle"))
+		return
+	}
+	if req.Kind != "reset" && req.Kind != "renew" {
+		jsonObj(c, nil, errors.New("invalid mesh lifecycle operation"))
+		return
+	}
+	managed, result, err := service.TryMeshLifecycle(c.Request.Context(), c.Param("email"), req.Kind, key, req.Limit, req.ExpiresAt, service.MeshAvailability{Disabled: req.Disabled, Unlimited: req.Unlimited})
+	if err == nil && !managed {
+		err = errors.New("client is not enrolled in mesh")
+	}
+	jsonObj(c, result, err)
+	if err == nil {
+		notifyClientsChanged()
+	}
 }
 
 type trafficUpdateRequest struct {
@@ -721,6 +794,21 @@ func (a *ClientController) bulkResetTraffic(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
+	}
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		handled, count, restart, err := service.ResetManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), false)
+		if err != nil {
+			jsonObj(c, nil, err)
+			return
+		}
+		if handled {
+			jsonObj(c, gin.H{"affected": count}, nil)
+			if restart {
+				a.xrayService.SetToNeedRestart()
+			}
+			notifyClientsChanged()
+			return
+		}
 	}
 	affected, err := a.clientService.BulkResetTraffic(&a.inboundService, req.Emails)
 	if err != nil {

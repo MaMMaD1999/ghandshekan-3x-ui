@@ -246,7 +246,8 @@ export const sections: readonly Section[] = [
       {
         method: 'GET',
         path: '/sponsors',
-        summary: 'Compatibility endpoint for cached clients. Returns an empty sponsor list; no advertising content is fetched or displayed.',
+        summary:
+          'Compatibility endpoint for cached clients. Returns an empty sponsor list; no advertising content is fetched or displayed.',
         deprecated: true,
       },
     ],
@@ -261,7 +262,8 @@ export const sections: readonly Section[] = [
       {
         method: 'GET',
         path: '/panel/api/inbounds/pronet/capabilities',
-        summary: 'Report custom billed/raw traffic support and current custom-core readiness. This does not advertise autonomous mesh quota enforcement.',
+        summary:
+          'Report custom billed/raw traffic support and current custom-core readiness. This does not advertise autonomous mesh quota enforcement.',
       },
       {
         method: 'GET',
@@ -344,7 +346,8 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/inbounds/:id/trafficCoefficient',
-        summary: 'Update the billed traffic coefficient for an owned inbound. An optional expectedCoefficient rejects stale concurrent edits with HTTP 409.',
+        summary:
+          'Update the billed traffic coefficient for an owned inbound. An optional expectedCoefficient rejects stale concurrent edits with HTTP 409.',
         params: [{ name: 'id', in: 'path', type: 'number', desc: 'Inbound ID.' }],
         body: '{\n  "trafficCoefficient": 1,\n  "expectedCoefficient": 1\n}',
       },
@@ -657,11 +660,12 @@ export const sections: readonly Section[] = [
           'Reload Xray with the current config. Typically required after structural inbound or routing changes.',
         errorResponse: '{\n  "success": false,\n  "msg": "Xray config is invalid: ..."\n}',
       },
-        {
-          method: 'POST',
-          path: '/panel/api/server/reconcileXrayService',
-          summary: 'Apply the current configuration using hot reload and per-user runtime gates where supported. Falls back to restart when required by the change and existing policy.',
-        },
+      {
+        method: 'POST',
+        path: '/panel/api/server/reconcileXrayService',
+        summary:
+          'Apply the current configuration using hot reload and per-user runtime gates where supported. Falls back to restart when required by the change and existing policy.',
+      },
       {
         method: 'POST',
         path: '/panel/api/server/installXray/:version',
@@ -1534,6 +1538,14 @@ export const sections: readonly Section[] = [
         summary:
           'Zero out a single client’s up/down counters. Re-enables the client across every attached inbound and pushes the change to Xray (or the remote node) so depleted users can connect again immediately.',
         params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/meshPolicy/:email',
+        summary:
+          'Reset or renew an enrolled mesh subscription. Requires administrator authorization and an Idempotency-Key header. Disconnected members receive the committed change when they reconnect; renewing preserves consumption.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        body: '{\n  "kind": "renew",\n  "limit": 10737418240,\n  "expiresAt": 1800000000\n}',
       },
       {
         method: 'POST',

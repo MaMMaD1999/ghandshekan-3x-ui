@@ -118,13 +118,17 @@ func (b PlanBuilder) Transition(ctx context.Context, kind string, previous Contr
 	if err := previous.Validate(); err != nil {
 		return ControlPlan{}, err
 	}
-	if prior.Subscription != previous.Subscription || prior.Epoch != previous.NextEpoch || len(prior.Keys) != len(previous.Claims) {
+	if prior.Subscription != previous.Subscription || (prior.Epoch != previous.NextEpoch && (prior.Version == 0 || prior.Epoch != previous.Epoch)) || len(prior.Keys) != len(previous.Claims) {
 		return ControlPlan{}, errors.New("previous membership mismatch")
 	}
 	p := ControlPlan{ID: controlNonce(), Subscription: prior.Subscription, Kind: kind, Epoch: prior.Epoch, NextEpoch: controlNonce(), Claims: map[string][]AliasClaim{}}
 	for owner, claims := range previous.Claims {
 		if !ed25519.PublicKey(prior.Keys[owner]).Equal(ed25519.PublicKey(b.Keys[owner])) {
 			return ControlPlan{}, errors.New("member key changed")
+		}
+		if prior.Version > 0 {
+			p.Claims[owner] = clone(claims)
+			continue
 		}
 		emails := make([]string, len(claims))
 		for i, claim := range claims {

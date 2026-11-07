@@ -45,8 +45,11 @@ func commitMeshClientPolicy(tx *gorm.DB, p quotaescrow.Policy, kind string, emai
 	}
 	byEmail := map[string]model.ClientRecord{}
 	for _, client := range clients {
+		if p.Version > 0 {
+			client.Enable = !p.Disabled
+		}
 		byEmail[client.Email] = client
-		if err := tx.Model(&model.ClientRecord{}).Where("id = ?", client.Id).Updates(map[string]any{"total_gb": p.Limit, "expiry_time": p.ExpiresAt * 1000}).Error; err != nil {
+		if err := tx.Model(&model.ClientRecord{}).Where("id = ?", client.Id).Updates(map[string]any{"total_gb": p.Limit, "expiry_time": p.ExpiresAt * 1000, "enable": client.Enable}).Error; err != nil {
 			return err
 		}
 		changes := map[string]any{"total": p.Limit, "expiry_time": p.ExpiresAt * 1000, "enable": client.Enable}

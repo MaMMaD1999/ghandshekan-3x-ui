@@ -34,6 +34,18 @@ type Policy struct {
 	ExpiresAt     int64             `json:"expiresAt"`
 	Grants        map[string]int64  `json:"grants"`
 	Keys          map[string][]byte `json:"keys"`
+	// Versioned shared policies keep one lifetime meter epoch. ResetGeneration
+	// separates billing cycles without waiting for an unreachable member.
+	Version         uint64 `json:"version,omitempty"`
+	ResetGeneration uint64 `json:"resetGeneration,omitempty"`
+	Authority       []byte `json:"authority,omitempty"`
+	Manager         string `json:"manager,omitempty"`
+	Disabled        bool   `json:"disabled,omitempty"`
+	Unlimited       bool   `json:"unlimited,omitempty"`
+	// Control membership is pinned independently of traffic-serving members.
+	// A relay/management voter need not carry this subscription's traffic.
+	ControlEpoch string            `json:"controlEpoch,omitempty"`
+	ControlKeys  map[string][]byte `json:"controlKeys,omitempty"`
 }
 
 // Row is a single-writer, monotonically increasing cumulative snapshot. Used
@@ -49,6 +61,8 @@ type Row struct {
 	Spent        int64            `json:"spent"`
 	Used         int64            `json:"used"`
 	Sent         map[string]int64 `json:"sent"`
+	Generation   uint64           `json:"generation,omitempty"`
+	ResetAt      int64            `json:"resetAt,omitempty"`
 }
 type SignedRow struct {
 	Row       Row    `json:"row"`
@@ -58,6 +72,8 @@ type Ledger struct {
 	policy Policy
 	rows   map[string]SignedRow
 }
+
+func (l *Ledger) Policy() Policy { return clone(l.policy) }
 
 func clone[T any](v T) T { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
 func payload(r Row) []byte {
@@ -71,6 +87,28 @@ func add(a, b int64) (int64, error) {
 	return a + b, nil
 }
 func New(p Policy) (*Ledger, error) {
+	if p.ControlEpoch != "" || len(p.ControlKeys) != 0 {
+		if p.Version == 0 || p.ControlEpoch == "" || len(p.ControlEpoch) > 128 || len(p.ControlKeys) < 3 || len(p.ControlKeys) > 256 {
+			return nil, errors.New("invalid control membership")
+		}
+		seen := map[string]bool{}
+		for owner, key := range p.ControlKeys {
+			if owner == "" || len(owner) > 128 || len(key) != ed25519.PublicKeySize || seen[string(key)] || reflect.DeepEqual(key, p.Authority) {
+				return nil, errors.New("invalid control voter key")
+			}
+			seen[string(key)] = true
+		}
+		if len(p.ControlKeys[p.Manager]) != ed25519.PublicKeySize {
+			return nil, errors.New("manager is not a control voter")
+		}
+	}
+	if p.Version == 0 {
+		if p.ResetGeneration != 0 || len(p.Authority) != 0 || p.Manager != "" || p.Disabled || p.Unlimited {
+			return nil, errors.New("unversioned lifecycle metadata")
+		}
+	} else if p.Mode != "shared" || p.ResetGeneration == 0 || p.ResetGeneration > p.Version || len(p.Authority) != ed25519.PublicKeySize || len(p.Keys[p.Manager]) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid shared lifecycle authority/generation")
+	}
 	if p.Mode != "" && p.Mode != "shared" {
 		return nil, errors.New("unknown quota availability mode")
 	}
@@ -108,7 +146,7 @@ func (l *Ledger) own(owner string) Row {
 	if s, ok := l.rows[owner]; ok {
 		return clone(s.Row)
 	}
-	return Row{Subscription: l.policy.Subscription, Epoch: l.policy.Epoch, Owner: owner, Sent: map[string]int64{}}
+	return Row{Subscription: l.policy.Subscription, Epoch: l.policy.Epoch, Owner: owner, Sent: map[string]int64{}, Generation: l.policy.ResetGeneration}
 }
 func (l *Ledger) balance(owner string) (int64, error) {
 	credit, ok := l.policy.Grants[owner]
@@ -143,9 +181,15 @@ func (l *Ledger) Available(owner string, now int64) (int64, error) {
 	if l.policy.ExpiresAt > 0 && now >= l.policy.ExpiresAt {
 		return 0, nil
 	}
+	if l.policy.Disabled {
+		return 0, nil
+	}
 	if l.policy.Mode == "shared" {
 		if _, exists := l.policy.Keys[owner]; !exists {
 			return 0, errors.New("unknown owner")
+		}
+		if l.policy.Unlimited {
+			return math.MaxInt64, nil
 		}
 		used, err := l.Billed()
 		if err != nil {
@@ -170,7 +214,14 @@ func (l *Ledger) Billed() (int64, error) {
 	total := l.policy.AlreadyBilled
 	for _, s := range l.rows {
 		var err error
-		total, err = add(total, s.Row.Used)
+		used := s.Row.Used
+		if l.policy.Version > 0 {
+			if s.Row.Generation != l.policy.ResetGeneration {
+				continue
+			}
+			used -= s.Row.ResetAt
+		}
+		total, err = add(total, used)
 		if err != nil {
 			return 0, err
 		}
@@ -196,6 +247,9 @@ func (l *Ledger) Merge(updates []SignedRow) error {
 		if r.Sequence == 0 || r.Spent < 0 || r.Used < r.Spent {
 			return errors.New("invalid counters")
 		}
+		if r.ResetAt < 0 || r.ResetAt > r.Used || r.Generation > l.policy.ResetGeneration || (l.policy.Version == 0 && (r.Generation != 0 || r.ResetAt != 0)) || (l.policy.Version > 0 && r.Generation == 0) {
+			return errors.New("invalid billing generation")
+		}
 		if l.policy.Mode == "shared" && r.Spent != 0 {
 			return errors.New("shared usage cannot spend escrow rights")
 		}
@@ -220,6 +274,9 @@ func (l *Ledger) Merge(updates []SignedRow) error {
 			}
 			if r.Spent < old.Row.Spent || r.Used < old.Row.Used {
 				return errors.New("spent counter rollback")
+			}
+			if r.Generation < old.Row.Generation || (r.Generation == old.Row.Generation && r.ResetAt != old.Row.ResetAt) || (r.Generation > old.Row.Generation && r.ResetAt < old.Row.Used) {
+				return errors.New("billing baseline rollback or mutation")
 			}
 			for dest, v := range old.Row.Sent {
 				if r.Sent[dest] < v {

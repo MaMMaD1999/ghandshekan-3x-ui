@@ -16,6 +16,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
 	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
 )
 
@@ -123,12 +124,46 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 	// Cap concurrent authenticated exchanges as well as payload sizes. No panel
 	// login, bearer credential or unrestricted proxy endpoint is mounted here.
 	capacity := make(chan struct{}, 16)
-	handler := worker.Handler()
 	controlAdapter := &MeshControl{DB: database.GetDB(), Owner: c.Owner, Key: ed25519.PrivateKey(c.PrivateKey), Authority: ed25519.PublicKey(c.Authority), Enforcer: r.enforcer, Drain: core.DrainMeshSessions, Flush: r.flush, Checkpoint: check}
+	controlAdapter.ScopedCheckpoint = worker.ScopedCheckpoint
+	administrator, err := OpenMeshAdministrator(c, controlAdapter, quotaescrow.ControlClient{HTTP: direct, Peers: c.Peers, Keys: c.PeerKeys})
+	if err != nil {
+		cancel()
+		_ = listener.Close()
+		direct.CloseIdleConnections()
+		return nil, err
+	}
+	quorum, err := OpenMeshQuorum(c, controlAdapter, trust, direct, settings.AccountingSyncProxyURL)
+	if err != nil {
+		administrator.Close()
+		cancel()
+		_ = listener.Close()
+		direct.CloseIdleConnections()
+		return nil, err
+	}
+	if quorum != nil {
+		administrator = &MeshAdministrator{Local: controlAdapter, Quorum: quorum}
+	}
+	if administrator != nil && !activeMeshAdministrator.CompareAndSwap(nil, administrator) {
+		administrator.Close()
+		cancel()
+		_ = listener.Close()
+		direct.CloseIdleConnections()
+		return nil, errors.New("mesh administrator already running")
+	}
+	worker.ApplyUpdates = controlAdapter.ApplySharedUpdates
+	handler := worker.Handler()
 	control := controlAdapter.Handler()
+	policyHandler := controlAdapter.SharedUpdatesHandler()
 	inspection := controlAdapter.InspectionHandler()
 	r.server = &http.Server{ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/exchange" && req.URL.Path != "/control" && req.URL.Path != "/inspect" {
+		// Reserve separate capacity for consensus so a slow traffic drain or
+		// a partitioned exchange cannot starve heartbeats/elections.
+		if req.URL.Path == meshconsensus.WirePath && quorum != nil {
+			quorum.Wire.ServeHTTP(w, req)
+			return
+		}
+		if req.URL.Path != "/exchange" && req.URL.Path != "/control" && req.URL.Path != "/inspect" && req.URL.Path != "/policy" {
 			http.NotFound(w, req)
 			return
 		}
@@ -139,7 +174,9 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 			http.Error(w, "busy", http.StatusServiceUnavailable)
 			return
 		}
-		if req.URL.Path == "/control" {
+		if req.URL.Path == "/policy" {
+			policyHandler.ServeHTTP(w, req)
+		} else if req.URL.Path == "/control" {
 			control.ServeHTTP(w, req)
 		} else if req.URL.Path == "/inspect" {
 			inspection.ServeHTTP(w, req)
@@ -156,7 +193,13 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 	// does not fill disks or obscure local enforcement failures.
 	var logMu sync.Mutex
 	lastLog := map[string]time.Time{}
-	supervisor := MeshSupervisor{Local: r.enforcer.ReconcileCurrent, Exchange: worker.Cycle, EmergencyStop: emergency, LocalInterval: time.Second, ExchangeInterval: 5 * time.Second, Report: func(kind string, e error) {
+	localCycle := func(ctx context.Context) error {
+		if err := r.enforcer.ReconcileCurrent(ctx); err != nil {
+			return err
+		}
+		return controlAdapter.ResumeSharedUpdates(ctx)
+	}
+	supervisor := MeshSupervisor{Local: localCycle, Exchange: worker.Cycle, EmergencyStop: emergency, LocalInterval: time.Second, ExchangeInterval: 5 * time.Second, Report: func(kind string, e error) {
 		logMu.Lock()
 		defer logMu.Unlock()
 		if time.Since(lastLog[kind]) < time.Minute {
@@ -168,7 +211,12 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 	go func() {
 		defer close(r.done)
 		defer checkpoint.Close()
+		defer administrator.Close()
 		var wg sync.WaitGroup
+		if administrator != nil {
+			wg.Add(1)
+			go func() { defer wg.Done(); administrator.Run(ctx) }()
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

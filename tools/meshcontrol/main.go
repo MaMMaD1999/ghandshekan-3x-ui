@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
 	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 	"gorm.io/driver/sqlite"
@@ -149,7 +150,19 @@ func run() error {
 	defer client.CloseIdleConnections()
 	transport := quotaescrow.ControlClient{HTTP: client, Peers: config.Peers, Keys: config.PeerKeys}
 	builder := quotaescrow.PlanBuilder{Authority: key, Keys: config.PeerKeys, Inspect: transport.Inspect}
-	c := quotaescrow.Coordinator{DB: db, Authority: key, Call: transport.Execute, CheckReady: builder.CheckReady}
+	c := quotaescrow.Coordinator{Owner: config.Owner, DB: db, Authority: key, Call: transport.Execute, CheckReady: builder.CheckReady, UpdatePolicy: transport.UpdatePolicy}
+	if config.ControlEpoch != "" {
+		c.ControlEpoch, c.ControlKeys = config.ControlEpoch, config.PeerKeys
+		wire := &meshconsensus.Wire{Owner: config.Owner, Epoch: config.ControlEpoch, Key: ed25519.PrivateKey(config.PrivateKey), Keys: config.PeerKeys, Peers: config.Peers, Direct: client}
+		c.RegisterPolicy = func(ctx context.Context, p quotaescrow.Policy) error {
+			r, err := meshconsensus.SignRegistration(p, key)
+			if err != nil {
+				return err
+			}
+			var out meshconsensus.Result
+			return wire.Call(ctx, config.Owner, "submit", meshconsensus.Command{ID: "enroll-" + quotaescrow.PolicyHash(p), Registration: &r}, &out)
+		}
+	}
 	if *action == "watch" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -187,6 +200,12 @@ func run() error {
 		if err := readPrivate(*requestPath, &input); err != nil {
 			return err
 		}
+		if input.Target.Mode == "shared" {
+			input.Target.Eventual = true
+		}
+		if input.Target.Eventual && config.ControlEpoch == "" {
+			return errors.New("shared enrollment requires a provisioned majority control cluster")
+		}
 		var plan quotaescrow.ControlPlan
 		var prior *quotaescrow.Policy
 		if *action == "enroll" || *action == "plan-enroll" {
@@ -206,13 +225,16 @@ func run() error {
 				return errors.New("transition must retain old membership")
 			}
 			var old quotaescrow.ControlJob
-			if err := db.First(&old, "id = ? AND complete = ?", input.Previous, true).Error; err != nil {
+			if err := db.First(&old, "id = ?", input.Previous).Error; err != nil {
 				return errors.New("completed previous operation required")
 			}
 			var previous quotaescrow.ControlPlan
 			var policy quotaescrow.Policy
 			if json.Unmarshal([]byte(old.PlanJSON), &previous) != nil || json.Unmarshal([]byte(old.PolicyJSON), &policy) != nil {
 				return errors.New("invalid previous operation")
+			}
+			if !old.Complete && (policy.Version < 2) {
+				return errors.New("initial enrollment/strict transition must finish before lifecycle updates")
 			}
 			if input.Subscription != policy.Subscription {
 				return errors.New("previous subscription mismatch")

@@ -25,6 +25,14 @@ import (
 // Exercises the mounted private control endpoint, actual protocol/task drain,
 // scheduled traffic collector and durable checkpoint rather than test callbacks.
 func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
+	testMeshControlRealLifecycle(t, false)
+}
+
+func TestMeshSharedRealLifecycleWhileDownloading(t *testing.T) {
+	testMeshControlRealLifecycle(t, true)
+}
+
+func testMeshControlRealLifecycle(t *testing.T, shared bool) {
 	core := os.Getenv("MESH_TEST_CORE")
 	if core == "" {
 		t.Skip("MESH_TEST_CORE not set")
@@ -171,7 +179,55 @@ func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
 		return done
 	}
 	policy := quotaescrow.Policy{Subscription: plan.Subscription, Epoch: plan.NextEpoch, Limit: 1 << 30, Grants: map[string]int64{owner: 1 << 30}, Keys: map[string][]byte{owner: pub}}
+	if shared {
+		policy.Mode = "shared"
+		policy.Version = 1
+		policy.ResetGeneration = 1
+		policy.Authority = config.Authority
+		policy.Manager = owner
+		policy.Grants[owner] = 0
+	}
+	var updates []quotaescrow.PolicyUpdate
 	for _, kind := range []string{"enroll", "renew", "reset"} {
+		if shared && kind != "enroll" {
+			done := startStream()
+			u, err := quotaescrow.SignPolicyUpdate(policy, "real-shared-"+kind, kind, policy.Limit, policy.ExpiresAt, authority)
+			if err != nil {
+				t.Fatal(err)
+			}
+			updates = append(updates, u)
+			if _, err := privateClient.UpdatePolicy(context.Background(), owner, quotaescrow.PolicyUpdateRequest{Subscription: policy.Subscription, Updates: updates}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("shared lifecycle acknowledged before stream drained")
+			}
+			policy = u.Next
+			before := otherBytes.bytes.Load()
+			eventually(t, time.Second, "unrelated user survives shared update", func() (bool, string) { return otherBytes.bytes.Load() > before, "no bytes" })
+			withDB(func() {
+				l, err := quotaescrow.NewStore(database.GetDB()).Load(plan.Subscription)
+				if err != nil {
+					t.Fatal(err)
+				}
+				used, err := l.Billed()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if kind == "reset" && used != 0 {
+					t.Fatal("reset retained old usage", used)
+				}
+				if kind == "renew" && used <= policy.AlreadyBilled {
+					t.Fatal("renewal lost drained traffic", used)
+				}
+			})
+			if _, err := privateClient.UpdatePolicy(context.Background(), owner, quotaescrow.PolicyUpdateRequest{Subscription: policy.Subscription, Updates: updates}); err != nil {
+				t.Fatal("shared replay", err)
+			}
+			continue
+		}
 		if kind != "enroll" {
 			plan.AccountingRoots = nil
 			plan.ID = "live-" + kind
@@ -211,6 +267,9 @@ func TestMeshControlRealEnrollmentRenewReset(t *testing.T) {
 			policy.AlreadyBilled = 0
 		}
 		policy.Grants[owner] = policy.Limit - policy.AlreadyBilled
+		if shared {
+			policy.Grants[owner] = 0
+		}
 		request("commit", &policy, []quotaescrow.ControlReceipt{receipt})
 		request("commit", &policy, []quotaescrow.ControlReceipt{receipt})
 		withDB(func() {

@@ -14,6 +14,8 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/hashicorp/raft v1.8.0
+	github.com/hashicorp/raft-boltdb/v2 v2.4.2
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.20.1
@@ -47,12 +49,14 @@ require (
 require (
 	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/gin-contrib/sse v1.1.2 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
@@ -64,6 +68,11 @@ require (
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/sessions v1.4.0 // indirect
 	github.com/grbit/go-json v0.11.0 // indirect
+	github.com/hashicorp/go-hclog v1.6.3 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/go-metrics v0.7.0 // indirect
+	github.com/hashicorp/go-msgpack/v2 v2.1.5 // indirect
+	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -79,6 +88,7 @@ require (
 	github.com/libp2p/go-nat v1.0.1-0.20250821073202-01afc089f138 // indirect
 	github.com/libp2p/go-netroute v0.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -106,6 +116,7 @@ require (
 	github.com/xtls/reality v0.0.0-20260921001439-3c98159dee38 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	go.etcd.io/bbolt v1.4.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.9.2 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/arch v0.32.0 // indirect

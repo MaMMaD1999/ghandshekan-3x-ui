@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
@@ -42,6 +43,9 @@ func meshReportScopes(db *gorm.DB) (map[string]meshReportScope, error) {
 					return nil, errors.New("invalid mesh reporting policy")
 				}
 				epochs[record.Subscription] = p.Epoch
+				if p.Version > 0 {
+					epochs[record.Subscription] += "/cycle/" + strconv.FormatUint(p.ResetGeneration, 10)
+				}
 			}
 			for _, binding := range bindings {
 				if epochs[binding.Subscription] == "" {

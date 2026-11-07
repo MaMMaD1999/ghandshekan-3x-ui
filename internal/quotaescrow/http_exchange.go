@@ -28,6 +28,24 @@ type HTTPExchange struct {
 	// transfer/receipt before it can authorize spending on another member.
 	Checkpoint       func() error
 	ScopedCheckpoint func(string) error
+	ApplyUpdates     func(context.Context, string, []PolicyUpdate) error
+}
+
+func (h HTTPExchange) learn(ctx context.Context, signed SignedExchange) error {
+	l, err := h.Store.Load(signed.Message.Subscription)
+	if err != nil {
+		return err
+	}
+	if err := verifyExchange(l.policy, signed); err != nil {
+		return err
+	}
+	if len(signed.Message.Updates) == 0 {
+		return nil
+	}
+	if h.ApplyUpdates == nil {
+		return errors.New("shared lifecycle adapter unavailable")
+	}
+	return h.ApplyUpdates(ctx, signed.Message.Subscription, signed.Message.Updates)
 }
 
 func (h HTTPExchange) checkpoint(subscription string) error {
@@ -118,11 +136,27 @@ func (h HTTPExchange) Attempt(ctx context.Context, destination, via string, rows
 	if err != nil {
 		return err
 	}
+	if l.policy.Version > 0 {
+		request.Message.Updates, err = h.Store.PolicyUpdates(h.Subscription)
+		if err != nil {
+			return err
+		}
+		request, err = signExchange(l.policy, h.Owner, h.Key, request.Message)
+		if err != nil {
+			return err
+		}
+	}
 	if err := h.checkpoint(h.Subscription); err != nil {
 		return err
 	}
 	receipt, err := h.post(ctx, via, request, false)
 	if err != nil {
+		return err
+	}
+	if err := matchReceipt(request, receipt); err != nil {
+		return err
+	}
+	if err := h.learn(ctx, receipt); err != nil {
 		return err
 	}
 	if err := h.Store.AcceptReceipt(request, receipt); err != nil {
@@ -159,6 +193,10 @@ func (h HTTPExchange) Handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		if len(l.policy.Keys[h.Owner]) != ed25519.PublicKeySize || h.learn(r.Context(), request) != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		var receipt SignedExchange
 		if request.Message.To == h.Owner {
 			receipt, err = h.Store.ReceiveExchange(h.Owner, h.Key, request)
@@ -171,6 +209,12 @@ func (h HTTPExchange) Handler() http.Handler {
 			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 			defer cancel()
 			receipt, err = h.post(ctx, request.Message.To, request, true)
+			if err == nil {
+				err = matchReceipt(request, receipt)
+			}
+			if err == nil {
+				err = h.learn(ctx, receipt)
+			}
 			if err == nil {
 				// Valid receipt also merges into the relay, keeping its view current.
 				err = h.Store.AcceptReceipt(request, receipt)

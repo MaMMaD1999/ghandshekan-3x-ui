@@ -19,16 +19,20 @@ import (
 // MeshConfig is host-bound and never part of browser settings or API responses.
 // Membership signing authority and per-node usage keys are distinct identities.
 type MeshConfig struct {
-	Owner      string            `json:"owner"`
-	PrivateKey []byte            `json:"privateKey"`
-	Authority  []byte            `json:"authority"`
-	Listen     string            `json:"listen"`
-	CertFile   string            `json:"certFile"`
-	KeyFile    string            `json:"keyFile"`
-	CAFile     string            `json:"caFile"`
-	StateDir   string            `json:"stateDir"`
-	Peers      map[string]string `json:"peers"`
-	PeerKeys   map[string][]byte `json:"peerKeys,omitempty"`
+	Owner            string            `json:"owner"`
+	PrivateKey       []byte            `json:"privateKey"`
+	Authority        []byte            `json:"authority"`
+	Listen           string            `json:"listen"`
+	CertFile         string            `json:"certFile"`
+	KeyFile          string            `json:"keyFile"`
+	CAFile           string            `json:"caFile"`
+	StateDir         string            `json:"stateDir"`
+	Peers            map[string]string `json:"peers"`
+	PeerKeys         map[string][]byte `json:"peerKeys,omitempty"`
+	AuthorityFile    string            `json:"authorityFile,omitempty"`
+	JournalFile      string            `json:"journalFile,omitempty"`
+	ControlEpoch     string            `json:"controlEpoch,omitempty"`
+	BootstrapControl bool              `json:"bootstrapControl,omitempty"`
 }
 
 func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
@@ -90,6 +94,15 @@ func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
 }
 
 func (c *MeshConfig) validate() error {
+	if c.BootstrapControl && c.ControlEpoch == "" {
+		return errors.New("control bootstrap requires an explicit generation")
+	}
+	if c.ControlEpoch != "" && (len(c.ControlEpoch) > 128 || len(c.PeerKeys) < 3 || len(c.PeerKeys) != len(c.Peers) || c.AuthorityFile != "") {
+		return errors.New("majority control requires pinned voters and must not load the root authority key")
+	}
+	if (c.AuthorityFile == "") != (c.JournalFile == "") || (c.AuthorityFile != "" && (!filepath.IsAbs(c.AuthorityFile) || !filepath.IsAbs(c.JournalFile))) {
+		return errors.New("private coordinator paths must be absolute and configured together")
+	}
 	if c.Owner == "" || len(c.Owner) > 128 || len(c.PrivateKey) != ed25519.PrivateKeySize || len(c.Authority) != ed25519.PublicKeySize {
 		return errors.New("invalid mesh identity")
 	}

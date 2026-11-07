@@ -26,14 +26,15 @@ import (
 // pinned authority must also sign every command. A node certificate/usage key
 // cannot enroll subscribers, reset a cycle, or mint spending rights.
 type MeshControl struct {
-	DB         *gorm.DB
-	Owner      string
-	Key        ed25519.PrivateKey
-	Authority  ed25519.PublicKey
-	Enforcer   *MeshEnforcer
-	Drain      func(context.Context, []string) error
-	Flush      func(context.Context) error
-	Checkpoint func() error
+	DB               *gorm.DB
+	Owner            string
+	Key              ed25519.PrivateKey
+	Authority        ed25519.PublicKey
+	Enforcer         *MeshEnforcer
+	Drain            func(context.Context, []string) error
+	Flush            func(context.Context) error
+	Checkpoint       func() error
+	ScopedCheckpoint func(string) error
 }
 
 func (c *MeshControl) transaction(fn func(*gorm.DB) error) error {
@@ -150,6 +151,24 @@ func meshPendingAliases(db *gorm.DB) (map[string]bool, error) {
 		}
 		for _, claim := range claims {
 			result[claim.Email] = true
+		}
+	}
+	if db.Migrator().HasTable(&quotaescrow.Record{}) {
+		var shared []quotaescrow.Record
+		if err := db.Where("pending_updates_json <> ? AND pending_updates_json <> ?", "[]", "").Find(&shared).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range shared {
+			if err := quotaescrow.ValidateCheckpointAdvance(r, r, nil); err != nil {
+				return nil, err
+			}
+			var bindings []model.MeshBinding
+			if err := db.Where("subscription = ?", r.Subscription).Find(&bindings).Error; err != nil {
+				return nil, err
+			}
+			for _, b := range bindings {
+				result[b.Email] = true
+			}
 		}
 	}
 	return result, nil
@@ -372,6 +391,9 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 func (c *MeshControl) commit(ctx context.Context, command quotaescrow.ControlCommand, emails []string) (quotaescrow.ControlReceipt, error) {
 	var result quotaescrow.ControlReceipt
 	plan, p := command.Plan, *command.Policy
+	if p.Version > 0 && !bytes.Equal(p.Authority, c.Authority) {
+		return result, errors.New("shared lifecycle authority changed")
+	}
 	if !bytes.Equal(p.Keys[c.Owner], c.Key.Public().(ed25519.PublicKey)) {
 		return result, errors.New("local key changed")
 	}

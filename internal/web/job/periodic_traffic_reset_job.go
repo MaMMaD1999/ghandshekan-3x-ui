@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,6 +65,21 @@ func (j *PeriodicTrafficResetJob) Run() {
 	j.resetClientsOnTheirOwnCycle()
 }
 
+// The same period boundary is used for inbound and individual schedules. A
+// mesh subscription attached to several inbounds resets only once per period.
+func (j *PeriodicTrafficResetJob) meshResetKey() string {
+	location := j.location
+	if location == nil {
+		location = time.UTC
+	}
+	now := time.Now().In(location)
+	boundary := now.Format("2006-01-02")
+	if j.period == "hourly" {
+		boundary = now.Format("2006-01-02T15")
+	}
+	return "schedule/" + string(j.period) + "/" + boundary
+}
+
 func (j *PeriodicTrafficResetJob) resetInboundsOnSchedule() {
 	inbounds, err := j.inboundService.GetInboundsByTrafficReset(string(j.period))
 	if err != nil {
@@ -94,7 +110,12 @@ func (j *PeriodicTrafficResetJob) resetInboundsOnSchedule() {
 			logger.Warning("Failed to reset traffic for inbound", inbound.Id, ":", resetInboundErr)
 		}
 
-		resetClientErr := j.clientService.ResetAllClientTraffics(&j.inboundService, inbound.Id)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		handled, resetClientErr := service.ResetInboundClientsWithMesh(ctx, inbound.Id, j.meshResetKey(), true)
+		cancel()
+		if !handled && resetClientErr == nil {
+			resetClientErr = j.clientService.ResetAllClientTraffics(&j.inboundService, inbound.Id)
+		}
 		if resetClientErr != nil {
 			logger.Warning("Failed to reset traffic for all users of inbound", inbound.Id, ":", resetClientErr)
 		}
@@ -143,6 +164,19 @@ func (j *PeriodicTrafficResetJob) resetClientsOnTheirOwnCycle() {
 	needRestart := false
 	forEachResetBounded(len(due), func(i int) {
 		c := due[i]
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		handled, _, _, meshErr := service.ResetManyWithMesh(ctx, []string{c.Email}, j.meshResetKey(), true)
+		cancel()
+		if handled || meshErr != nil {
+			if meshErr != nil {
+				logger.Warning("Mesh scheduled reset remains pending: ", meshErr)
+			} else {
+				mu.Lock()
+				resetCount++
+				mu.Unlock()
+			}
+			return
+		}
 		// ResetTrafficByEmail rather than a bulk UPDATE: it is the path that also
 		// propagates to the client's node and clears the MTProto sidecar quota.
 		nr, resetErr := j.clientService.ResetTrafficByEmail(&j.inboundService, c.Email)

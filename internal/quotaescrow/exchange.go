@@ -12,13 +12,15 @@ import (
 // it on behalf of the destination or alter the subscription/accounting epoch.
 // Transport authentication still restricts who may send these bounded messages.
 type Exchange struct {
-	Kind         string      `json:"kind"`
-	From         string      `json:"from"`
-	To           string      `json:"to"`
-	Subscription string      `json:"subscription"`
-	Epoch        string      `json:"epoch"`
-	Nonce        string      `json:"nonce"`
-	Rows         []SignedRow `json:"rows"`
+	Kind          string         `json:"kind"`
+	From          string         `json:"from"`
+	To            string         `json:"to"`
+	Subscription  string         `json:"subscription"`
+	Epoch         string         `json:"epoch"`
+	Nonce         string         `json:"nonce"`
+	Rows          []SignedRow    `json:"rows"`
+	PolicyVersion uint64         `json:"policyVersion,omitempty"`
+	Updates       []PolicyUpdate `json:"updates,omitempty"`
 }
 type SignedExchange struct {
 	Message   Exchange `json:"message"`
@@ -55,6 +57,20 @@ func validateExchange(p Policy, m Exchange) error {
 	if err != nil || len(nonce) != 32 || len(m.Rows) > len(p.Keys) {
 		return errors.New("invalid exchange bounds")
 	}
+	// Verify certificates before accepting a newer generation of usage. The
+	// persistent receiver separately checks exact replays against its history.
+	for _, u := range m.Updates {
+		if u.Next.Version <= p.Version {
+			continue
+		}
+		if err := VerifyPolicyUpdate(p, u); err != nil {
+			return err
+		}
+		p = u.Next
+	}
+	if m.PolicyVersion > p.Version {
+		return errors.New("missing policy certificates")
+	}
 	// Validate cumulative rows before any persistent merge or acknowledgement.
 	l, err := New(p)
 	if err != nil {
@@ -64,13 +80,10 @@ func validateExchange(p Policy, m Exchange) error {
 }
 
 func verifyExchange(p Policy, signed SignedExchange) error {
-	if err := validateExchange(p, signed.Message); err != nil {
-		return err
-	}
-	if !ed25519.Verify(p.Keys[signed.Message.From], exchangePayload(signed.Message), signed.Signature) {
+	if len(p.Keys[signed.Message.From]) != ed25519.PublicKeySize || !ed25519.Verify(p.Keys[signed.Message.From], exchangePayload(signed.Message), signed.Signature) {
 		return errors.New("invalid exchange signature")
 	}
-	return nil
+	return validateExchange(p, signed.Message)
 }
 
 func NewExchange(p Policy, owner, destination string, key ed25519.PrivateKey, rows []SignedRow) (SignedExchange, error) {
@@ -79,7 +92,7 @@ func NewExchange(p Policy, owner, destination string, key ed25519.PrivateKey, ro
 		return SignedExchange{}, err
 	}
 	return signExchange(p, owner, key, Exchange{Kind: "request", From: owner, To: destination,
-		Subscription: p.Subscription, Epoch: p.Epoch, Nonce: hex.EncodeToString(nonce), Rows: rows})
+		Subscription: p.Subscription, Epoch: p.Epoch, Nonce: hex.EncodeToString(nonce), Rows: rows, PolicyVersion: p.Version})
 }
 
 // ReceiveExchange acknowledges ONLY after Store.Merge commits. A crash between
@@ -109,6 +122,11 @@ func (s *Store) ReceiveExchange(owner string, key ed25519.PrivateKey, request Si
 		return SignedExchange{}, err
 	}
 	reply.Rows = l.Snapshot()
+	reply.PolicyVersion = l.policy.Version
+	reply.Updates, err = s.PolicyUpdates(m.Subscription)
+	if err != nil {
+		return SignedExchange{}, err
+	}
 	return signExchange(l.policy, owner, key, reply)
 }
 
@@ -125,9 +143,16 @@ func (s *Store) AcceptReceipt(request, receipt SignedExchange) error {
 	if err = verifyExchange(l.policy, receipt); err != nil {
 		return err
 	}
+	if err := matchReceipt(request, receipt); err != nil {
+		return err
+	}
+	return s.Merge(request.Message.Subscription, receipt.Message.Rows)
+}
+
+func matchReceipt(request, receipt SignedExchange) error {
 	a, b := request.Message, receipt.Message
-	if a.Kind != "request" || b.Kind != "receipt" || b.From != a.To || b.To != a.From || b.Nonce != a.Nonce {
+	if a.Kind != "request" || b.Kind != "receipt" || b.From != a.To || b.To != a.From || b.Nonce != a.Nonce || a.Subscription != b.Subscription || a.Epoch != b.Epoch {
 		return errors.New("receipt does not acknowledge this destination and request")
 	}
-	return s.Merge(a.Subscription, b.Rows)
+	return nil
 }

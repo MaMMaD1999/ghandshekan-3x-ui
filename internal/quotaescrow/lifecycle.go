@@ -31,6 +31,9 @@ func (s *Store) BeginTransition(subscription, nextEpoch, transition string) erro
 		if err != nil {
 			return err
 		}
+		if l.policy.Version > 0 {
+			return errors.New("versioned shared policy requires signed shared lifecycle")
+		}
 		if nextEpoch == l.policy.Epoch {
 			return ErrEpoch
 		}

@@ -21,10 +21,15 @@ type ControlTarget struct {
 	Limit     int64            `json:"limit"`
 	ExpiresAt int64            `json:"expiresAt"`
 	Weights   map[string]int64 `json:"weights,omitempty"`
+	Eventual  bool             `json:"eventual,omitempty"`
+	Disabled  bool             `json:"disabled,omitempty"`
+	Unlimited bool             `json:"unlimited,omitempty"`
 }
 
 type ControlJob struct {
 	ID                string `gorm:"primaryKey"`
+	Subscription      string `gorm:"index"`
+	UpdatesJSON       string `gorm:"not null;default:'[]'"`
 	Revision          uint64
 	PlanJSON          string
 	PriorJSON         string
@@ -43,12 +48,17 @@ func (ControlJob) TableName() string { return "quota_escrow_control_jobs" }
 // adapter provides authenticated private transport and an authoritative legacy
 // usage cutover after EVERY member has drained. There is no guessed baseline.
 type Coordinator struct {
-	DB           *gorm.DB
-	Authority    ed25519.PrivateKey
-	Call         func(context.Context, string, SignedControl) (ControlReceipt, error)
-	InitialUsage func(context.Context, ControlPlan, []ControlReceipt) (int64, error)
-	CheckReady   func(context.Context, ControlPlan) error
-	mu           sync.Mutex
+	Owner          string
+	DB             *gorm.DB
+	Authority      ed25519.PrivateKey
+	Call           func(context.Context, string, SignedControl) (ControlReceipt, error)
+	InitialUsage   func(context.Context, ControlPlan, []ControlReceipt) (int64, error)
+	CheckReady     func(context.Context, ControlPlan) error
+	UpdatePolicy   func(context.Context, string, PolicyUpdateRequest) (PolicyReceipt, error)
+	ControlEpoch   string
+	ControlKeys    map[string][]byte
+	RegisterPolicy func(context.Context, Policy) error
+	mu             sync.Mutex
 }
 
 func (c *Coordinator) Create(plan ControlPlan, prior *Policy, target ControlTarget, keys map[string][]byte) error {
@@ -60,6 +70,21 @@ func (c *Coordinator) Create(plan ControlPlan, prior *Policy, target ControlTarg
 	}
 	if target.Limit < 0 || target.ExpiresAt < 0 || len(keys) != len(plan.Claims) || (target.Mode != "" && target.Mode != "shared") {
 		return errors.New("invalid coordinator target")
+	}
+	if target.Eventual && target.Mode != "shared" {
+		return errors.New("eventual lifecycle requires shared availability")
+	}
+	if !target.Eventual && (target.Disabled || target.Unlimited) {
+		return errors.New("availability flags require versioned shared policy")
+	}
+	if target.Eventual && len(keys[c.Owner]) != ed25519.PublicKeySize {
+		return errors.New("shared lifecycle requires a pinned managing owner")
+	}
+	if prior != nil && prior.Version > 0 && prior.Manager != c.Owner {
+		return errors.New("only the managing panel may order lifecycle changes")
+	}
+	if prior != nil && prior.Version > 0 && (!target.Eventual || target.Mode != "shared") {
+		return errors.New("versioned shared lifecycle cannot be downgraded")
 	}
 	seen := map[string]bool{}
 	for owner := range plan.Claims {
@@ -95,7 +120,7 @@ func (c *Coordinator) Create(plan ControlPlan, prior *Policy, target ControlTarg
 		return errors.New("at least one traffic-serving member is required")
 	}
 	encode := func(v any) string { b, _ := json.Marshal(v); return string(b) }
-	job := ControlJob{ID: plan.ID, Revision: 1, PlanJSON: encode(plan), PriorJSON: encode(prior), TargetJSON: encode(target), KeysJSON: encode(keys), ReceiptsJSON: "{}", AcknowledgedJSON: "{}"}
+	job := ControlJob{ID: plan.ID, Subscription: plan.Subscription, Revision: 1, PlanJSON: encode(plan), PriorJSON: encode(prior), TargetJSON: encode(target), KeysJSON: encode(keys), ReceiptsJSON: "{}", AcknowledgedJSON: "{}", UpdatesJSON: "[]"}
 	return c.DB.Transaction(func(tx *gorm.DB) error {
 		var existing ControlJob
 		err := tx.First(&existing, "id = ?", plan.ID).Error
@@ -107,6 +132,36 @@ func (c *Coordinator) Create(plan ControlPlan, prior *Policy, target ControlTarg
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if prior != nil && prior.Version > 0 {
+			var candidates []ControlJob
+			if err := tx.Where("subscription = ? AND policy_json <> ?", plan.Subscription, "").Find(&candidates).Error; err != nil {
+				return err
+			}
+			var latest Policy
+			var chain []PolicyUpdate
+			for _, candidate := range candidates {
+				var p Policy
+				if json.Unmarshal([]byte(candidate.PolicyJSON), &p) != nil {
+					return errors.New("invalid persisted shared policy")
+				}
+				if p.Version > latest.Version {
+					latest = p
+					chain, err = decodeUpdates(candidate.UpdatesJSON)
+					if err != nil {
+						return err
+					}
+				}
+			}
+			if !reflect.DeepEqual(latest, *prior) {
+				return errors.New("subscription policy changed; refresh before updating")
+			}
+			u, err := SignPolicyChange(*prior, plan.ID, plan.Kind, target, c.Authority)
+			if err != nil {
+				return err
+			}
+			job.PolicyJSON = encode(u.Next)
+			job.UpdatesJSON = encode(append(chain, u))
 		}
 		return tx.Create(&job).Error
 	})
@@ -169,6 +224,9 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 	// not bypass the validation performed on its original creation.
 	if err := c.Create(plan, prior, target, keys); err != nil {
 		return empty, false, err
+	}
+	if prior != nil && prior.Version > 0 {
+		return c.resumeShared(ctx, &job, plan, *prior, target, acknowledged)
 	}
 	if len(receipts) == 0 && !job.PreflightComplete && c.CheckReady != nil {
 		if err := c.CheckReady(ctx, plan); err != nil {
@@ -241,6 +299,12 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 		if _, err := New(policy); err != nil {
 			return empty, false, err
 		}
+		if target.Eventual && (policy.Version != 1 || policy.Manager != c.Owner || policy.Disabled != target.Disabled || policy.Unlimited != target.Unlimited || !reflect.DeepEqual(policy.Authority, []byte(c.Authority.Public().(ed25519.PublicKey)))) {
+			return empty, false, errors.New("stored lifecycle policy differs from enrollment target")
+		}
+		if policy.ControlEpoch != c.ControlEpoch || !reflect.DeepEqual(policy.ControlKeys, c.ControlKeys) {
+			return empty, false, errors.New("stored enrollment control membership mismatch")
+		}
 	} else {
 		var billed int64
 		switch plan.Kind {
@@ -276,6 +340,13 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 			for owner := range policy.Grants {
 				policy.Grants[owner] = 0
 			}
+			if target.Eventual {
+				policy.Version, policy.ResetGeneration = 1, 1
+				policy.Authority = clone([]byte(c.Authority.Public().(ed25519.PublicKey)))
+				policy.Manager = c.Owner
+				policy.Disabled, policy.Unlimited = target.Disabled, target.Unlimited
+				policy.ControlEpoch, policy.ControlKeys = c.ControlEpoch, clone(c.ControlKeys)
+			}
 		}
 		if _, err := New(policy); err != nil {
 			return empty, false, err
@@ -283,6 +354,14 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 		body, _ := json.Marshal(policy)
 		if err := c.save(&job, map[string]any{"policy_json": string(body)}); err != nil {
 			return empty, false, err
+		}
+	}
+	if policy.ControlEpoch != "" {
+		if c.RegisterPolicy == nil {
+			return policy, false, errors.New("majority registration unavailable")
+		}
+		if err := c.RegisterPolicy(ctx, policy); err != nil {
+			return policy, false, err
 		}
 	}
 	for _, owner := range owners {

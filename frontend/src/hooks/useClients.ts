@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { HttpUtil, Msg } from '@/utils';
+import { lifecycleRequest } from '@/utils/lifecycleRequest';
 import { parseMsg } from '@/utils/zodValidate';
 import { keys } from '@/api/queryKeys';
 import { markLocalInvalidate } from '@/api/invalidationTracker';
@@ -375,7 +376,11 @@ export function useClients(options: UseClientsOptions = {}) {
 
   const updateMut = useMutation({
     mutationFn: ({ email, client }: { email: string; client: unknown }) =>
-      HttpUtil.post(`/panel/api/clients/update/${encodeURIComponent(email)}`, client, JSON_HEADERS),
+      lifecycleRequest(`update/${email}`, client, (id) =>
+        HttpUtil.post(`/panel/api/clients/update/${encodeURIComponent(email)}`, client, {
+          headers: { ...JSON_HEADERS.headers, 'Idempotency-Key': id },
+        }),
+      ),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },
@@ -517,14 +522,23 @@ export function useClients(options: UseClientsOptions = {}) {
 
   const resetTrafficMut = useMutation({
     mutationFn: (email: string) =>
-      HttpUtil.post(`/panel/api/clients/resetTraffic/${encodeURIComponent(email)}`),
+      lifecycleRequest(`reset/${email}`, undefined, (id) =>
+        HttpUtil.post(`/panel/api/clients/resetTraffic/${encodeURIComponent(email)}`, undefined, {
+          headers: { 'Idempotency-Key': id },
+        }),
+      ),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },
   });
 
   const resetAllTrafficsMut = useMutation({
-    mutationFn: () => HttpUtil.post('/panel/api/clients/resetAllTraffics'),
+    mutationFn: () =>
+      lifecycleRequest('reset-all', undefined, (id) =>
+        HttpUtil.post('/panel/api/clients/resetAllTraffics', undefined, {
+          headers: { 'Idempotency-Key': id },
+        }),
+      ),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },

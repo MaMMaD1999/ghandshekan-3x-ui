@@ -12,14 +12,17 @@ import (
 // Tables are migrated, but enrollment is not enabled until the runtime and
 // membership adapters pass deployment acceptance tests.
 type Record struct {
-	Subscription string `gorm:"primaryKey"`
-	Revision     uint64
-	PolicyJSON   string
-	RowsJSON     string
-	FrozenFor    string `gorm:"not null;default:''"`
-	FreezeJSON   string `gorm:"not null;default:''"`
-	PausedFor    string `gorm:"not null;default:''"`
-	PausedEpoch  string `gorm:"not null;default:''"`
+	Subscription       string `gorm:"primaryKey"`
+	Revision           uint64
+	PolicyJSON         string
+	RowsJSON           string
+	FrozenFor          string `gorm:"not null;default:''"`
+	FreezeJSON         string `gorm:"not null;default:''"`
+	PausedFor          string `gorm:"not null;default:''"`
+	PausedEpoch        string `gorm:"not null;default:''"`
+	BasePolicyJSON     string `gorm:"not null;default:''"`
+	UpdatesJSON        string `gorm:"not null;default:'[]'"`
+	PendingUpdatesJSON string `gorm:"not null;default:'[]'"`
 }
 
 func (Record) TableName() string { return "quota_escrow_states" }
@@ -38,7 +41,14 @@ func (s *Store) Create(p Policy) error {
 	if err != nil {
 		return err
 	}
-	return s.db.Create(&Record{Subscription: p.Subscription, Revision: 1, PolicyJSON: string(b), RowsJSON: "[]"}).Error
+	base := ""
+	if p.Version > 0 {
+		if p.Version != 1 || p.ResetGeneration != 1 {
+			return errors.New("initial shared policy must start at revision one")
+		}
+		base = string(b)
+	}
+	return s.db.Create(&Record{Subscription: p.Subscription, Revision: 1, PolicyJSON: string(b), RowsJSON: "[]", BasePolicyJSON: base, UpdatesJSON: "[]", PendingUpdatesJSON: "[]"}).Error
 }
 func decodeRecord(r Record) (*Ledger, error) {
 	var p Policy
@@ -47,6 +57,9 @@ func decodeRecord(r Record) (*Ledger, error) {
 	}
 	if p.Subscription != r.Subscription {
 		return nil, errors.New("stored scope mismatch")
+	}
+	if err := validateSharedRecord(r, p); err != nil {
+		return nil, err
 	}
 	l, err := New(p)
 	if err != nil {

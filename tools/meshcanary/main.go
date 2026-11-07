@@ -45,6 +45,8 @@ func run() error {
 	relays := flag.String("relays", "", "comma-separated pinned relay IDs")
 	block := flag.Bool("block-direct", false, "inject direct outage in this canary client only")
 	egress := flag.String("egress", "", "dedicated canary loopback accounting bridge")
+	authority := flag.String("authority", "", "private enrollment authority for quorum canary only")
+	operation := flag.String("operation", "", "explicit canary lifecycle request ID")
 	flag.Parse()
 	c, trust, err := service.LoadMeshConfig(*identity)
 	if err != nil {
@@ -55,6 +57,9 @@ func run() error {
 	}
 	if err := os.MkdirAll(c.StateDir, 0700); err != nil {
 		return err
+	}
+	if strings.HasPrefix(*action, "quorum-") {
+		return quorumCanary(c, trust, *action, *authority, *operation, *destination, *bytes)
 	}
 	path := filepath.Join(c.StateDir, "canary.sqlite")
 	db, err := gorm.Open(sqlite.Open(path+"?_busy_timeout=10000&_journal_mode=WAL&_synchronous=FULL&_txlock=immediate"), &gorm.Config{Logger: logger.Discard})
