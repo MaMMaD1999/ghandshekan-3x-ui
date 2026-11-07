@@ -19,20 +19,22 @@ import (
 // MeshConfig is host-bound and never part of browser settings or API responses.
 // Membership signing authority and per-node usage keys are distinct identities.
 type MeshConfig struct {
-	Owner            string            `json:"owner"`
-	PrivateKey       []byte            `json:"privateKey"`
-	Authority        []byte            `json:"authority"`
-	Listen           string            `json:"listen"`
-	CertFile         string            `json:"certFile"`
-	KeyFile          string            `json:"keyFile"`
-	CAFile           string            `json:"caFile"`
-	StateDir         string            `json:"stateDir"`
-	Peers            map[string]string `json:"peers"`
-	PeerKeys         map[string][]byte `json:"peerKeys,omitempty"`
-	AuthorityFile    string            `json:"authorityFile,omitempty"`
-	JournalFile      string            `json:"journalFile,omitempty"`
-	ControlEpoch     string            `json:"controlEpoch,omitempty"`
-	BootstrapControl bool              `json:"bootstrapControl,omitempty"`
+	Owner                   string            `json:"owner"`
+	PrivateKey              []byte            `json:"privateKey"`
+	Authority               []byte            `json:"authority"`
+	Listen                  string            `json:"listen"`
+	CertFile                string            `json:"certFile"`
+	KeyFile                 string            `json:"keyFile"`
+	CAFile                  string            `json:"caFile"`
+	StateDir                string            `json:"stateDir"`
+	Peers                   map[string]string `json:"peers"`
+	PeerKeys                map[string][]byte `json:"peerKeys,omitempty"`
+	AuthorityFile           string            `json:"authorityFile,omitempty"`
+	JournalFile             string            `json:"journalFile,omitempty"`
+	ControlEpoch            string            `json:"controlEpoch,omitempty"`
+	BootstrapControl        bool              `json:"bootstrapControl,omitempty"`
+	EnrollmentAuthorityFile string            `json:"enrollmentAuthorityFile,omitempty"`
+	EnrollmentJournalFile   string            `json:"enrollmentJournalFile,omitempty"`
 }
 
 func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
@@ -94,6 +96,10 @@ func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
 }
 
 func (c *MeshConfig) validate() error {
+	if (c.EnrollmentAuthorityFile == "") != (c.EnrollmentJournalFile == "") ||
+		(c.EnrollmentAuthorityFile != "" && (c.ControlEpoch == "" || !filepath.IsAbs(c.EnrollmentAuthorityFile) || !filepath.IsAbs(c.EnrollmentJournalFile) || c.EnrollmentJournalFile == c.JournalFile)) {
+		return errors.New("initial enrollment requires separate private authority/journal paths and majority control")
+	}
 	if c.BootstrapControl && c.ControlEpoch == "" {
 		return errors.New("control bootstrap requires an explicit generation")
 	}

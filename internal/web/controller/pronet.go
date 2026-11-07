@@ -8,7 +8,7 @@ import (
 )
 
 func (a *InboundController) pronetCapabilities(c *gin.Context) {
-	jsonObj(c, gin.H{"product": "pronet-3x-ui", "accountingVersion": 1, "perUserInboundTraffic": true, "inboundCoefficient": true, "quotaTraffic": "billed", "rawTraffic": true, "coreReady": service.ProNetCoreReady()}, nil)
+	jsonObj(c, gin.H{"product": "pronet-3x-ui", "accountingVersion": 1, "perUserInboundTraffic": true, "inboundCoefficient": true, "quotaTraffic": "billed", "rawTraffic": true, "coreReady": service.ProNetCoreReady(), "mesh": service.MeshCapabilities()}, nil)
 }
 func (a *InboundController) setTrafficCoefficient(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))

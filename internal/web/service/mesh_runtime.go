@@ -151,6 +151,18 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 		direct.CloseIdleConnections()
 		return nil, errors.New("mesh administrator already running")
 	}
+	enrollment, err := OpenMeshEnrollmentAdministrator(c, controlAdapter, quotaescrow.ControlClient{HTTP: direct, Peers: c.Peers, Keys: c.PeerKeys}, quorum)
+	if err == nil && enrollment != nil && !activeMeshEnrollment.CompareAndSwap(nil, enrollment) {
+		err = errors.New("mesh enrollment administrator already running")
+	}
+	if err != nil {
+		enrollment.Close()
+		administrator.Close()
+		cancel()
+		_ = listener.Close()
+		direct.CloseIdleConnections()
+		return nil, err
+	}
 	worker.ApplyUpdates = controlAdapter.ApplySharedUpdates
 	handler := worker.Handler()
 	control := controlAdapter.Handler()
@@ -212,7 +224,12 @@ func StartMeshRuntime(parent context.Context, core *XrayService, collectors ...f
 		defer close(r.done)
 		defer checkpoint.Close()
 		defer administrator.Close()
+		defer enrollment.Close()
 		var wg sync.WaitGroup
+		if enrollment != nil {
+			wg.Add(1)
+			go func() { defer wg.Done(); enrollment.Run(ctx) }()
+		}
 		if administrator != nil {
 			wg.Add(1)
 			go func() { defer wg.Done(); administrator.Run(ctx) }()

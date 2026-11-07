@@ -1549,6 +1549,14 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'POST',
+        path: '/panel/api/clients/meshEnroll',
+        summary:
+          'Enroll existing client aliases under one shared subscription on a configured enrollment manager. Administrator authorization and a stable Idempotency-Key are required. Inspect the mesh capabilities first. limit is bytes; expiresAt is Unix seconds (0 means no expiry); unlimited must be explicit. Discovery is read-only, then a durable operation drains the selected aliases and preserves their verified historical usage exactly once. Retry the identical request and key if pending or if a response is lost. This endpoint does not create credentials, replace an existing enrollment, or change node membership.',
+        body: '{\n  "subscription": "account-123",\n  "emails": ["alice-phone", "alice-laptop"],\n  "limit": 10737418240,\n  "expiresAt": 1800000000,\n  "disabled": false,\n  "unlimited": false\n}',
+        response: '{\n  "success": true,\n  "obj": { "operation": "...", "pending": false }\n}',
+      },
+      {
+        method: 'POST',
         path: '/panel/api/clients/updateTraffic/:email',
         summary:
           'Manually adjust a client’s upload + download counters. Useful for migrations from external accounting systems.',

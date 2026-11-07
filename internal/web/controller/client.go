@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
@@ -83,6 +85,7 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/bulkResetTraffic", a.bulkResetTraffic)
 	g.POST("/resetTraffic/:email", a.resetTrafficByEmail)
 	g.POST("/meshPolicy/:email", a.meshPolicy)
+	g.POST("/meshEnroll", a.meshEnroll)
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
 	g.POST("/clearIps/:email", a.clearIps)
@@ -658,6 +661,26 @@ func (a *ClientController) meshPolicy(c *gin.Context) {
 	if err == nil && !managed {
 		err = errors.New("client is not enrolled in mesh")
 	}
+	jsonObj(c, result, err)
+	if err == nil {
+		notifyClientsChanged()
+	}
+}
+
+func (a *ClientController) meshEnroll(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128<<10)
+	var req service.MeshEnrollmentInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	result, err := service.QueueMeshEnrollment(ctx, req, c.GetHeader("Idempotency-Key"))
 	jsonObj(c, result, err)
 	if err == nil {
 		notifyClientsChanged()
