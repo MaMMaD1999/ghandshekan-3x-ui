@@ -89,6 +89,14 @@ func (e *MeshEnforcer) Reconcile(ctx context.Context, now int64) error {
 		e.known[email] = true
 	}
 	if len(e.known) == 0 {
+		// A fresh registry still has to acknowledge the core gate before it
+		// advertises readiness. Otherwise the application cannot enroll its
+		// first parent because readiness itself waits for an enrolled alias.
+		// Checkpoint and both registry reads above must succeed first; a lost
+		// or unreadable registry must never clear an unknown runtime fence.
+		if e.Checkpoint != nil {
+			return e.apply(ctx, map[string]bool{})
+		}
 		return nil
 	}
 	failures, settleErr := SettleMeshMeters(e.DB, e.KeyForOwner)

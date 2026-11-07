@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -10,6 +14,38 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 	"gorm.io/gorm"
 )
+
+func TestNativeEnrollmentReloadPinsRegistry(t *testing.T) {
+	a, _ := enrollmentAdminFixture(t)
+	path, c := meshRuntimeFixture(t, "manager")
+	c.Authority = a.manager.Coordinator.Authority.Public().(ed25519.PublicKey)
+	c.ControlEpoch = "reload-test"
+	c.PeerKeys = map[string][]byte{c.Owner: ed25519.PrivateKey(c.PrivateKey).Public().(ed25519.PublicKey)}
+	for _, owner := range []string{"second", "third"} {
+		pub, _, _ := ed25519.GenerateKey(rand.Reader)
+		c.PeerKeys[owner], c.Peers[owner] = pub, c.Peers[c.Owner]
+	}
+	c.EnrollmentAuthorityFile = filepath.Join(filepath.Dir(path), "authority.json")
+	c.EnrollmentJournalFile = filepath.Join(filepath.Dir(path), "enrollment.sqlite")
+	c.NativeEnrollment, c.NativeEnrollmentExclude = true, []string{"protected"}
+	a.nativeConfigPath = path
+	a.manager.Coordinator.ControlEpoch, a.manager.Coordinator.ControlKeys = c.ControlEpoch, c.PeerKeys
+	write := func() {
+		body, _ := json.Marshal(c)
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	if err := a.reloadNativeEnrollment(); err != nil || !a.nativeEnabled || len(a.nativeExclude) != 1 {
+		t.Fatal(err)
+	}
+	c.ControlEpoch = "changed-membership"
+	write()
+	if err := a.reloadNativeEnrollment(); err == nil || a.nativeEnabled {
+		t.Fatal("live membership change was accepted")
+	}
+}
 
 func TestEnrollmentGuardRejectsEditAfterPreflightBeforeBarrier(t *testing.T) {
 	for _, field := range []string{"total_gb", "expiry_time", "enable", "traffic_reset", "traffic_reset_day", "reset", "uuid"} {

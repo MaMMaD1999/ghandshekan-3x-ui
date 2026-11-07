@@ -1,10 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,9 +118,17 @@ func (a *MeshEnrollmentAdministrator) runNativeEnrollment(ctx context.Context) {
 	cursor := 0
 	lastLog := time.Time{}
 	for ctx.Err() == nil {
-		row, err := a.nextNativeEnrollment(cursor)
+		// Only this opt-in and exclusion list can reload. Membership and keys
+		// remain pinned by the running controller and cannot change underneath it.
+		err := a.reloadNativeEnrollment()
+		var row *model.ClientRecord
+		if err == nil && a.nativeEnabled {
+			row, err = a.nextNativeEnrollment(cursor)
+		}
 		delay := 2 * time.Second
-		if err == nil && row == nil {
+		if !a.nativeEnabled {
+			delay = 5 * time.Second
+		} else if err == nil && row == nil {
 			cursor = 0
 			delay = 30 * time.Second
 		}
@@ -138,4 +150,24 @@ func (a *MeshEnrollmentAdministrator) runNativeEnrollment(ctx context.Context) {
 		case <-timer.C:
 		}
 	}
+}
+
+func (a *MeshEnrollmentAdministrator) reloadNativeEnrollment() error {
+	if a.nativeConfigPath == "" {
+		return nil
+	}
+	c, _, err := LoadMeshConfig(a.nativeConfigPath)
+	if err != nil {
+		a.nativeEnabled = false
+		return err
+	}
+	coordinator := a.manager.Coordinator
+	if c.Owner != a.manager.Local.Owner || c.ControlEpoch != coordinator.ControlEpoch ||
+		!bytes.Equal(c.Authority, coordinator.Authority.Public().(ed25519.PublicKey)) ||
+		!reflect.DeepEqual(c.PeerKeys, coordinator.ControlKeys) {
+		a.nativeEnabled = false
+		return errors.New("live enrollment registry changed; explicit restart/reconfiguration required")
+	}
+	a.nativeEnabled, a.nativeExclude = c.NativeEnrollment, slices.Clone(c.NativeEnrollmentExclude)
+	return nil
 }

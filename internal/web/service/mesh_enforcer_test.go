@@ -82,6 +82,28 @@ func TestMeshEnforcerIsolatesSettlementFailuresAndRetries(t *testing.T) {
 	}
 }
 
+func TestMeshEnforcerEmptyRegistryAcknowledgesRuntime(t *testing.T) {
+	setupConflictDB(t)
+	calls := 0
+	e := MeshEnforcer{DB: database.GetDB(), Checkpoint: func() error { return nil }, Fence: func(_ context.Context, emails []string) error {
+		calls++
+		if len(emails) != 0 {
+			t.Fatal("fresh registry fenced legacy clients", emails)
+		}
+		return nil
+	}}
+	if err := e.ReconcileCurrent(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatal("first enrollment cannot discover runtime readiness", calls)
+	}
+	e.Checkpoint = func() error { return errors.New("restored checkpoint") }
+	if err := e.ReconcileCurrent(context.Background()); err == nil || calls != 1 {
+		t.Fatal("checkpoint failure changed runtime admission", calls, err)
+	}
+}
+
 func TestMeshEnforcerReportsUnconfirmedFence(t *testing.T) {
 	setupConflictDB(t)
 	sentinel := errors.New("core unavailable")

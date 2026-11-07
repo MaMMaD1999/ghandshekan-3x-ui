@@ -23,15 +23,16 @@ import (
 // still require the majority's policy log; this service cannot renew/reset
 // them or bypass the pinned membership registry.
 type MeshEnrollmentAdministrator struct {
-	manager       *MeshAdministrator
-	builder       quotaescrow.PlanBuilder
-	mu            sync.Mutex
-	aliasMu       sync.Mutex
-	aliasPolicy   func(string) (quotaescrow.Policy, error)
-	aliasExecute  func(context.Context, meshconsensus.Command) (meshconsensus.Result, error)
-	aliasSync     func(context.Context, string, uint64) error
-	nativeEnabled bool
-	nativeExclude []string
+	manager          *MeshAdministrator
+	builder          quotaescrow.PlanBuilder
+	mu               sync.Mutex
+	aliasMu          sync.Mutex
+	aliasPolicy      func(string) (quotaescrow.Policy, error)
+	aliasExecute     func(context.Context, meshconsensus.Command) (meshconsensus.Result, error)
+	aliasSync        func(context.Context, string, uint64) error
+	nativeEnabled    bool
+	nativeExclude    []string
+	nativeConfigPath string
 }
 
 var activeMeshEnrollment atomic.Pointer[MeshEnrollmentAdministrator]
@@ -73,7 +74,7 @@ func OpenMeshEnrollmentAdministrator(c *MeshConfig, local *MeshControl, transpor
 		a.Close()
 		return nil, err
 	}
-	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}, aliasPolicy: quorum.Node.FSM.Policy, aliasExecute: quorum.Node.Execute, aliasSync: quorum.synchronize, nativeEnabled: c.NativeEnrollment, nativeExclude: slices.Clone(c.NativeEnrollmentExclude)}, nil
+	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}, aliasPolicy: quorum.Node.FSM.Policy, aliasExecute: quorum.Node.Execute, aliasSync: quorum.synchronize, nativeEnabled: c.NativeEnrollment, nativeExclude: slices.Clone(c.NativeEnrollmentExclude), nativeConfigPath: MeshConfigPath()}, nil
 }
 
 func (a *MeshEnrollmentAdministrator) Close() {
@@ -88,9 +89,7 @@ func (a *MeshEnrollmentAdministrator) Run(ctx context.Context) {
 	nativeDone := make(chan struct{})
 	go func() {
 		defer close(nativeDone)
-		if a.nativeEnabled {
-			a.runNativeEnrollment(ctx)
-		}
+		a.runNativeEnrollment(ctx)
 	}()
 	done := make(chan struct{})
 	go func() {
