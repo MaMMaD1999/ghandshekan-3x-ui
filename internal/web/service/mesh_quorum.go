@@ -135,10 +135,6 @@ func (q *MeshQuorum) synchronize(ctx context.Context, sub string, required uint6
 
 func (q *MeshQuorum) Queue(ctx context.Context, sub, kind, key string, limit, expiry *int64, availability ...MeshAvailability) (MeshOperationResult, error) {
 	var out MeshOperationResult
-	id, err := meshOperationID(sub, kind, key)
-	if err != nil {
-		return out, err
-	}
 	if len(availability) > 1 {
 		return out, errors.New("invalid availability options")
 	}
@@ -146,6 +142,15 @@ func (q *MeshQuorum) Queue(ctx context.Context, sub, kind, key string, limit, ex
 	if len(availability) == 1 {
 		patch.Disabled = availability[0].Disabled
 		patch.Unlimited = availability[0].Unlimited
+	}
+	return q.QueuePatch(ctx, sub, kind, key, patch)
+}
+
+func (q *MeshQuorum) QueuePatch(ctx context.Context, sub, kind, key string, patch *meshconsensus.PolicyPatch) (MeshOperationResult, error) {
+	var out MeshOperationResult
+	id, err := meshOperationID(sub, kind, key)
+	if err != nil {
+		return out, err
 	}
 	// Check enrollment locally before submitting any administrative command.
 	l, err := quotaescrow.NewStore(q.Local.DB).Load(sub)

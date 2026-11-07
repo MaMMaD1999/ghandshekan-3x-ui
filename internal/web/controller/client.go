@@ -3,11 +3,13 @@ package controller
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/meshconsensus"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/entity"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/websocket"
@@ -372,7 +374,27 @@ func (a *ClientController) bulkAdjust(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	meshCount := 0
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		if int64(req.AddDays) > math.MaxInt64/86400 || int64(req.AddDays) < math.MinInt64/86400 {
+			jsonObj(c, nil, errors.New("day adjustment exceeds supported range"))
+			return
+		}
+		// Keep credential/HWID edits in the existing guarded path. A mixed
+		// request must never apply a quota change and then lose its other half.
+		if strings.TrimSpace(req.Flow) == "" && req.LimitHwid == nil && strings.TrimSpace(req.AdTag) == "" {
+			handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), &meshconsensus.PolicyPatch{AddBytes: req.AddBytes, AddSeconds: int64(req.AddDays) * 86400})
+			if err != nil {
+				jsonObj(c, nil, err)
+				return
+			}
+			if handled {
+				meshCount, req.Emails = count, ordinary
+			}
+		}
+	}
 	result, needRestart, err := a.clientService.BulkAdjust(&a.inboundService, req.Emails, req.AddDays, req.AddBytes, req.Flow, req.LimitHwid, req.AdTag)
+	result.Adjusted += meshCount
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
@@ -471,7 +493,20 @@ func (a *ClientController) bulkSetEnable(c *gin.Context, enable bool) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	meshCount := 0
+	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
+		disabled := !enable
+		handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), &meshconsensus.PolicyPatch{Disabled: &disabled})
+		if err != nil {
+			jsonObj(c, nil, err)
+			return
+		}
+		if handled {
+			meshCount, req.Emails = count, ordinary
+		}
+	}
 	result, needRestart, err := a.clientService.BulkSetEnable(&a.inboundService, req.Emails, enable)
+	result.Changed += meshCount
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return

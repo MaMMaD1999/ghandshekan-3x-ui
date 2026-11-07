@@ -430,7 +430,11 @@ export function useClients(options: UseClientsOptions = {}) {
       limitHwid?: number | null;
       adTag?: string;
     }): Promise<Msg<BulkAdjustResult>> => {
-      const raw = await HttpUtil.post('/panel/api/clients/bulkAdjust', payload, JSON_HEADERS);
+      const raw = await lifecycleRequest('bulkAdjust', payload, (id) =>
+        HttpUtil.post('/panel/api/clients/bulkAdjust', payload, {
+          headers: { ...JSON_HEADERS.headers, 'Idempotency-Key': id },
+        }),
+      );
       return parseMsg(raw, BulkAdjustResultSchema, 'clients/bulkAdjust');
     },
     onSuccess: (msg) => {
@@ -446,7 +450,11 @@ export function useClients(options: UseClientsOptions = {}) {
       const path = payload.enable
         ? '/panel/api/clients/bulkEnable'
         : '/panel/api/clients/bulkDisable';
-      const raw = await HttpUtil.post(path, { emails: payload.emails }, JSON_HEADERS);
+      const raw = await lifecycleRequest(path, { emails: payload.emails }, (id) =>
+        HttpUtil.post(path, { emails: payload.emails }, {
+          headers: { ...JSON_HEADERS.headers, 'Idempotency-Key': id },
+        }),
+      );
       return parseMsg(
         raw,
         BulkSetEnableResultSchema,

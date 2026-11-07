@@ -160,7 +160,13 @@ func run() error {
 				return err
 			}
 			var out meshconsensus.Result
-			return wire.Call(ctx, config.Owner, "submit", meshconsensus.Command{ID: "enroll-" + quotaescrow.PolicyHash(p), Registration: &r}, &out)
+			if err := wire.Call(ctx, config.Owner, "submit", meshconsensus.Command{ID: "enroll-" + quotaescrow.PolicyHash(p), Registration: &r}, &out); err != nil {
+				return err
+			}
+			if out.Error != "" {
+				return errors.New(out.Error)
+			}
+			return nil
 		}
 	}
 	if *action == "watch" {

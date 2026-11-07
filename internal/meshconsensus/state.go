@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"reflect"
 	"sync"
 
@@ -53,6 +54,10 @@ type PolicyPatch struct {
 	ExpiresAt *int64 `json:"expiresAt,omitempty"`
 	Disabled  *bool  `json:"disabled,omitempty"`
 	Unlimited *bool  `json:"unlimited,omitempty"`
+	// Deltas are evaluated against the committed policy, never a follower's
+	// potentially stale display. Repeating an operation ID cannot add twice.
+	AddBytes   int64 `json:"addBytes,omitempty"`
+	AddSeconds int64 `json:"addSeconds,omitempty"`
 }
 type Result struct {
 	Error  string                    `json:"error,omitempty"`
@@ -183,6 +188,30 @@ func (f *FSM) apply(c Command) Result {
 		if c.Patch.Unlimited != nil {
 			target.Unlimited = *c.Patch.Unlimited
 		}
+		if c.Patch.AddBytes != 0 {
+			if c.Patch.Limit != nil || c.Patch.Unlimited != nil {
+				return Result{Error: "cannot combine absolute quota and relative quota"}
+			}
+			if !p.Unlimited {
+				value, err := adjustPositive(p.Limit, c.Patch.AddBytes, math.MaxInt64)
+				if err != nil {
+					return Result{Error: err.Error()}
+				}
+				target.Limit = value
+			}
+		}
+		if c.Patch.AddSeconds != 0 {
+			if c.Patch.ExpiresAt != nil {
+				return Result{Error: "cannot combine absolute expiry and relative expiry"}
+			}
+			if p.ExpiresAt != 0 {
+				value, err := adjustPositive(p.ExpiresAt, c.Patch.AddSeconds, math.MaxInt64/1000)
+				if err != nil {
+					return Result{Error: err.Error()}
+				}
+				target.ExpiresAt = value
+			}
+		}
 	}
 	if target.Mode != "shared" || !target.Eventual || len(target.Weights) != 0 {
 		return Result{Error: "invalid shared target"}
@@ -194,6 +223,15 @@ func (f *FSM) apply(c Command) Result {
 	sub.Updates = append(sub.Updates, u)
 	f.data.Subscriptions[c.Subscription] = sub
 	return Result{Update: &u}
+}
+
+func adjustPositive(value, delta, ceiling int64) (int64, error) {
+	// Avoid both wraparound and turning a reduction into the sentinel zero
+	// (unlimited). Reject the whole command so a retry remains deterministic.
+	if value < 0 || value > ceiling || delta > ceiling-value || delta <= -value {
+		return 0, errors.New("relative adjustment exceeds the finite policy range")
+	}
+	return value + delta, nil
 }
 
 func (f *FSM) Base(id string) (quotaescrow.Policy, error) {
