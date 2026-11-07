@@ -86,7 +86,7 @@ func testMeshGateLiveTraffic(t *testing.T, protocol string, mux bool) {
 		identityField = "password"
 	}
 	serverSettings := fmt.Sprintf(`{"clients":[{"%s":"%s","email":"phone"},{"%s":"%s","email":"other"}],"decryption":"none"}`, identityField, phoneID, identityField, otherID)
-	start("server", fmt.Sprintf(`{"log":{"loglevel":"warning"},"stats":{},"api":{"tag":"api","services":["StatsService"]},"policy":{"levels":{"0":{"statsUserUplink":true,"statsUserDownlink":true}}},"inbounds":[{"tag":"api","listen":"127.0.0.1","port":%d,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}},{"tag":"users","listen":"127.0.0.1","port":%d,"protocol":"%s","settings":%s}],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.1/32"]}]}}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}}`, apiPort, serverPort, protocol, serverSettings), apiPort)
+	start("server", fmt.Sprintf(`{"log":{"loglevel":"warning"},"stats":{},"api":{"tag":"api","services":["StatsService","HandlerService"]},"policy":{"levels":{"0":{"statsUserUplink":true,"statsUserDownlink":true}}},"inbounds":[{"tag":"api","listen":"127.0.0.1","port":%d,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}},{"tag":"users","listen":"127.0.0.1","port":%d,"protocol":"%s","settings":%s}],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{"finalRules":[{"action":"allow","ip":["127.0.0.1/32"]}]}}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}}`, apiPort, serverPort, protocol, serverSettings), apiPort)
 	client := func(name, id string, socksPort int) *http.Client {
 		settings := fmt.Sprintf(`{"vnext":[{"address":"127.0.0.1","port":%d,"users":[{"id":"%s","encryption":"none","security":"auto"}]}]}`, serverPort, id)
 		if protocol == "trojan" {
@@ -185,12 +185,35 @@ func testMeshGateLiveTraffic(t *testing.T, protocol string, mux bool) {
 	if err != nil || string(body) != "ok" {
 		t.Fatal("unrelated user lost traffic", string(body), err)
 	}
+	if err := api.AddUser(protocol, "missing-inbound", map[string]any{"email": "phone", identityField: phoneID, "security": "auto"}); err == nil {
+		t.Fatal("invalid handler unexpectedly accepted renewal")
+	}
+	if r, err := phone.Get(target.URL); err == nil {
+		r.Body.Close()
+		t.Fatal("failed renewal cleared a configuration fence")
+	}
+	renew := func() {
+		t.Helper()
+		if err := api.RemoveUser("users", "phone"); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.AddUser(protocol, "users", map[string]any{"email": "phone", identityField: phoneID, "security": "auto"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renew()
+	r, err = phone.Get(target.URL)
+	if err != nil {
+		t.Fatal("renewed user remained fenced after successful AddUser", err)
+	}
+	r.Body.Close()
+	if err = api.ReconcileConfigGates(ctx, []string{"phone", "other"}, []string{"other"}); err != nil {
+		t.Fatal(err)
+	}
 	if err = api.ReconcileUserGates(ctx, []string{"phone"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = api.ReconcileConfigGates(ctx, []string{"other"}, []string{"phone", "other"}); err != nil {
-		t.Fatal(err)
-	}
+	renew()
 	if r, err := phone.Get(target.URL); err == nil {
 		r.Body.Close()
 		t.Fatal("config renewal bypassed mesh gate")
@@ -201,6 +224,32 @@ func testMeshGateLiveTraffic(t *testing.T, protocol string, mux bool) {
 	r, err = phone.Get(target.URL)
 	if err != nil {
 		t.Fatal("unblocked user did not reconnect", err)
+	}
+	r.Body.Close()
+	// Whole-listener replacement also restores configuration admission, but
+	// still cannot bypass the independent subscription quota fence.
+	if err = api.ReconcileConfigGates(ctx, []string{"phone"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = api.ReconcileUserGates(ctx, []string{"phone"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = api.DelInbound("users"); err != nil {
+		t.Fatal(err)
+	}
+	if err = api.AddInbound([]byte(fmt.Sprintf(`{"tag":"users","listen":"127.0.0.1","port":%d,"protocol":"%s","settings":%s}`, serverPort, protocol, serverSettings))); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := phone.Get(target.URL); err == nil {
+		r.Body.Close()
+		t.Fatal("listener replacement bypassed mesh gate")
+	}
+	if err = api.ReconcileUserGates(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	r, err = phone.Get(target.URL)
+	if err != nil {
+		t.Fatal("restored listener retained old config fence", err)
 	}
 	r.Body.Close()
 }

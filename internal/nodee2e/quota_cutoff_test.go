@@ -143,6 +143,34 @@ func TestAutomaticQuotaCutoffWithoutRestart(t *testing.T) {
 				}
 				return otherBytes.bytes.Load() > baseline, "no new bytes on unrelated stream"
 			})
+			// Renew via the same ordinary client edit used by the panel/bot. No
+			// force restart, explicit reconcile or manual enable toggle is allowed.
+			renewed := ib.client("limited")
+			renewed["enable"] = true
+			renewed["totalGB"] = int64(1 << 30)
+			renewed["expiryTime"] = time.Now().Add(time.Hour).UnixMilli()
+			p.call(http.MethodPost, "/panel/api/clients/update/limited", renewed)
+			resumed, err := limitedClient.Get(target.URL)
+			if err != nil {
+				t.Fatal("renewal left the enabled funded user disconnected", err)
+			}
+			_, err = io.ReadFull(resumed.Body, first)
+			resumed.Body.Close()
+			if err != nil {
+				t.Fatal("renewed download did not resume", err)
+			}
+			if after := state(); after != before {
+				t.Fatal("renewal restarted the whole core")
+			}
+			baseline = otherBytes.bytes.Load()
+			eventually(t, 2*time.Second, "renewal preserved unrelated download", func() (bool, string) {
+				select {
+				case err := <-otherDone:
+					t.Fatalf("renewal ended unrelated stream: %v", err)
+				default:
+				}
+				return otherBytes.bytes.Load() > baseline, "unrelated stream stalled during renewal"
+			})
 		})
 	}
 }
