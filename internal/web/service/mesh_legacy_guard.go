@@ -102,7 +102,7 @@ func requireMeshSettingsUnchanged(tx *gorm.DB, current, next string) error {
 }
 
 func requireMeshInboundIdentity(tx *gorm.DB, old, next *model.Inbound) error {
-	if old.Tag == next.Tag && old.Protocol == next.Protocol && reflect.DeepEqual(old.NodeID, next.NodeID) {
+	if old.Tag == next.Tag && old.Protocol == next.Protocol && reflect.DeepEqual(old.NodeID, next.NodeID) && old.TrafficReset == next.TrafficReset && old.TrafficResetDay == next.TrafficResetDay {
 		return nil
 	}
 	var emails []string

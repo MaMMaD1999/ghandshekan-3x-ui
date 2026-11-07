@@ -56,7 +56,9 @@ func ResetManyWithMesh(ctx context.Context, emails []string, key string, schedul
 		if json.Unmarshal([]byte(record.PolicyJSON), &policy) != nil || policy.Version == 0 {
 			return true, 0, false, errMeshLifecycleRequired
 		}
-		if scheduled && policy.ControlEpoch == "" && policy.Manager != group[0].Owner {
+		// Majority subscriptions use their signed canonical schedule. Legacy
+		// cron clocks must not create another reset on each node/time zone.
+		if scheduled && (policy.ResetSchedule != nil || policy.Manager != group[0].Owner) {
 			continue
 		}
 		if a == nil || (policy.ControlEpoch == "" && policy.Manager != a.Local.Owner) {

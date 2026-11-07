@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"sync"
 
 	"github.com/hashicorp/raft"
@@ -56,8 +57,9 @@ type PolicyPatch struct {
 	Unlimited *bool  `json:"unlimited,omitempty"`
 	// Deltas are evaluated against the committed policy, never a follower's
 	// potentially stale display. Repeating an operation ID cannot add twice.
-	AddBytes   int64 `json:"addBytes,omitempty"`
-	AddSeconds int64 `json:"addSeconds,omitempty"`
+	AddBytes    int64 `json:"addBytes,omitempty"`
+	AddSeconds  int64 `json:"addSeconds,omitempty"`
+	ScheduledAt int64 `json:"scheduledAt,omitempty"`
 }
 type Result struct {
 	Error  string                    `json:"error,omitempty"`
@@ -188,6 +190,7 @@ func (f *FSM) apply(c Command) Result {
 		if c.Patch.Unlimited != nil {
 			target.Unlimited = *c.Patch.Unlimited
 		}
+		target.ScheduledAt = c.Patch.ScheduledAt
 		if c.Patch.AddBytes != 0 {
 			if c.Patch.Limit != nil || c.Patch.Unlimited != nil {
 				return Result{Error: "cannot combine absolute quota and relative quota"}
@@ -255,6 +258,34 @@ func (f *FSM) Policy(id string) (quotaescrow.Policy, error) {
 		return copyJSON(s.Updates[len(s.Updates)-1].Next), nil
 	}
 	return copyJSON(s.Base.Policy), nil
+}
+
+// SchedulePage includes subscriptions whose traffic is served by other nodes.
+// Being elected control leader never requires a local client/accounting row.
+func (f *FSM) SchedulePage(after string, limit int) []quotaescrow.Policy {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if limit < 1 || limit > 256 {
+		return nil
+	}
+	latest := func(s subscription) quotaescrow.Policy {
+		if len(s.Updates) > 0 {
+			return s.Updates[len(s.Updates)-1].Next
+		}
+		return s.Base.Policy
+	}
+	var ids []string
+	for id, sub := range f.data.Subscriptions {
+		if id > after && latest(sub).ResetSchedule != nil {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	out := make([]quotaescrow.Policy, 0, min(limit, len(ids)))
+	for _, id := range ids[:min(limit, len(ids))] {
+		out = append(out, copyJSON(latest(f.data.Subscriptions[id])))
+	}
+	return out
 }
 func (f *FSM) Updates(id string, after uint64) ([]quotaescrow.PolicyUpdate, error) {
 	f.mu.RLock()

@@ -376,9 +376,35 @@ Enrollment planning, recovery and network canary acceptance on 2026-11-07:
   builds, actual panel/core enrollment-renew-reset and both offline cutoff modes
   passed with these changes. Checkpoint/coordinator race tests also passed.
 
-Production remains on panel 35 with enrollment disabled. The queued-versus-
-immediate policy for reset/renewal during a complete member isolation still needs
-an operator decision. Public UI/API/bulk/scheduled lifecycle integration, binding
-application device aliases to their finite subscription policy, and the final
-subscriber rollout remain unfinished. Do not enable enrollment merely because
-the private operator tools or the network canary passed.
+Production remains on panel 35 with enrollment disabled. The agreed behavior is
+immediate application on connected members and catch-up when disconnected members
+return. A strict registered majority can renew/reset while the master is down;
+an isolated minority cannot create an override. Shared-mode accounting may exceed
+the cap during simultaneous partitions, but merges record actual bytes once.
+
+### Administrator enrollment and canonical schedules (2026-11-07)
+
+- `/panel/api/clients/meshEnroll` discovers pinned members, then persists an
+  immutable enrollment operation before it fences any selected alias. A lost
+  prepare/commit response is retried with the same `Idempotency-Key` and payload.
+  Historical usage comes from the frozen accounting tree, never a guessed balance.
+- Enrollment authority/journal paths are separate from majority control. Node-sync
+  credentials cannot call this administrator endpoint. The capabilities response
+  distinguishes an installed runtime from an available enrollment manager.
+- Bulk quota/expiry changes group aliases by subscription. Relative adjustments
+  run against committed policy and repeating the operation ID cannot add twice.
+- Enrollment captures client and inherited inbound reset schedules under an
+  explicit IANA panel time zone. `Local` is rejected for scheduled enrollment,
+  since it can mean different clocks on different hosts. The elected majority
+  leader handles scheduled resets even when it has no local traffic alias.
+- Coincident boundaries produce one reset. Following a long outage, only the
+  newest elapsed boundary is applied; earlier periods cannot clear fresh usage
+  repeatedly. A committed boundary survives leader changes and master recovery.
+- Enrollment/replay, scoped authorization, full ledger/service/controller/job,
+  master outage/rejoin, calendar/DST and repeated race tests passed on Linux.
+
+Still required before subscriber rollout: automatic/native and application-parent
+membership integration, supported credential/attachment edits, bounded policy
+history for long-running schedules, and deployment acceptance. The renewal core
+fix is separately staged and validated on all five panels without activating it.
+Do not enable enrollment merely because the private tools or network canary pass.

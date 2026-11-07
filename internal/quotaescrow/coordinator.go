@@ -17,13 +17,15 @@ import (
 // ControlTarget is an administrator's intended subscription limit/deadline.
 // Weights allocate spending RIGHTS only; they never multiply billed traffic.
 type ControlTarget struct {
-	Mode      string           `json:"mode,omitempty"`
-	Limit     int64            `json:"limit"`
-	ExpiresAt int64            `json:"expiresAt"`
-	Weights   map[string]int64 `json:"weights,omitempty"`
-	Eventual  bool             `json:"eventual,omitempty"`
-	Disabled  bool             `json:"disabled,omitempty"`
-	Unlimited bool             `json:"unlimited,omitempty"`
+	Mode          string           `json:"mode,omitempty"`
+	Limit         int64            `json:"limit"`
+	ExpiresAt     int64            `json:"expiresAt"`
+	Weights       map[string]int64 `json:"weights,omitempty"`
+	Eventual      bool             `json:"eventual,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	Unlimited     bool             `json:"unlimited,omitempty"`
+	ResetSchedule *ResetSchedule   `json:"resetSchedule,omitempty"`
+	ScheduledAt   int64            `json:"scheduledAt,omitempty"`
 }
 
 type ControlJob struct {
@@ -67,6 +69,12 @@ func (c *Coordinator) Create(plan ControlPlan, prior *Policy, target ControlTarg
 	}
 	if err := plan.Validate(); err != nil {
 		return err
+	}
+	if err := target.ResetSchedule.Validate(); err != nil {
+		return err
+	}
+	if target.ScheduledAt != 0 || (target.ResetSchedule != nil && (!target.Eventual || c.ControlEpoch == "" || plan.Kind != "enroll")) {
+		return errors.New("reset schedules require initial majority enrollment")
 	}
 	if target.Limit < 0 || target.ExpiresAt < 0 || len(keys) != len(plan.Claims) || (target.Mode != "" && target.Mode != "shared") {
 		return errors.New("invalid coordinator target")
@@ -305,6 +313,9 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 		if policy.ControlEpoch != c.ControlEpoch || !reflect.DeepEqual(policy.ControlKeys, c.ControlKeys) {
 			return empty, false, errors.New("stored enrollment control membership mismatch")
 		}
+		if !reflect.DeepEqual(policy.ResetSchedule, target.ResetSchedule) || policy.ScheduledThrough != 0 {
+			return empty, false, errors.New("stored enrollment reset schedule mismatch")
+		}
 	} else {
 		var billed int64
 		switch plan.Kind {
@@ -336,6 +347,7 @@ func (c *Coordinator) Resume(ctx context.Context, id string) (Policy, bool, erro
 		}
 		policy = Policy{Subscription: plan.Subscription, Epoch: plan.NextEpoch, Limit: target.Limit, AlreadyBilled: billed, ExpiresAt: target.ExpiresAt, Keys: keys, Grants: allocateRights(target.Limit-min(target.Limit, billed), owners, target.Weights)}
 		policy.Mode = target.Mode
+		policy.ResetSchedule = clone(target.ResetSchedule)
 		if policy.Mode == "shared" {
 			for owner := range policy.Grants {
 				policy.Grants[owner] = 0

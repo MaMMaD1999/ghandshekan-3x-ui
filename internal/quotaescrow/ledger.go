@@ -44,8 +44,10 @@ type Policy struct {
 	Unlimited       bool   `json:"unlimited,omitempty"`
 	// Control membership is pinned independently of traffic-serving members.
 	// A relay/management voter need not carry this subscription's traffic.
-	ControlEpoch string            `json:"controlEpoch,omitempty"`
-	ControlKeys  map[string][]byte `json:"controlKeys,omitempty"`
+	ControlEpoch     string            `json:"controlEpoch,omitempty"`
+	ControlKeys      map[string][]byte `json:"controlKeys,omitempty"`
+	ResetSchedule    *ResetSchedule    `json:"resetSchedule,omitempty"`
+	ScheduledThrough int64             `json:"scheduledThrough,omitempty"`
 }
 
 // Row is a single-writer, monotonically increasing cumulative snapshot. Used
@@ -87,6 +89,12 @@ func add(a, b int64) (int64, error) {
 	return a + b, nil
 }
 func New(p Policy) (*Ledger, error) {
+	if err := p.ResetSchedule.Validate(); err != nil {
+		return nil, err
+	}
+	if p.ScheduledThrough < 0 || (p.ResetSchedule == nil && p.ScheduledThrough != 0) || (p.ResetSchedule != nil && (p.ControlEpoch == "" || (p.ScheduledThrough != 0 && p.ScheduledThrough <= p.ResetSchedule.StartedAt))) {
+		return nil, errors.New("invalid scheduled reset policy")
+	}
 	if p.ControlEpoch != "" || len(p.ControlKeys) != 0 {
 		if p.Version == 0 || p.ControlEpoch == "" || len(p.ControlEpoch) > 128 || len(p.ControlKeys) < 3 || len(p.ControlKeys) > 256 {
 			return nil, errors.New("invalid control membership")

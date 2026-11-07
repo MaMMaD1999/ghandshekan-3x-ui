@@ -110,6 +110,10 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 		if err != nil {
 			return out, err
 		}
+		target.ResetSchedule, err = enrollmentResetSchedule(a.manager.Local.DB, input.Emails)
+		if err != nil {
+			return out, err
+		}
 		plan.ID, target.Weights = id, weights
 		keys := map[string][]byte{}
 		for owner := range plan.Claims {
@@ -127,6 +131,7 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 			return out, errors.New("invalid saved enrollment")
 		}
 		target.Weights = saved.Weights
+		target.ResetSchedule = saved.ResetSchedule
 		if plan.Kind != "enroll" || plan.Subscription != input.Subscription || !reflect.DeepEqual(plan.AccountingRoots, roots) || !reflect.DeepEqual(target, saved) {
 			return out, errors.New("enrollment request ID reused with different inputs")
 		}

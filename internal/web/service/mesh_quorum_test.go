@@ -107,7 +107,8 @@ func TestMeshQuorumPanelResetWhileMasterOfflineAndRejoin(t *testing.T) {
 		_, e = current.Execute(ctx, meshconsensus.Command{ID: "enroll", Registration: &r})
 		return e
 	}
-	if err := coordinator.Create(plan, nil, quotaescrow.ControlTarget{Mode: "shared", Eventual: true, Limit: 1000}, keys); err != nil {
+	schedule := &quotaescrow.ResetSchedule{Zone: "UTC", StartedAt: time.Now().Add(-3 * time.Hour).Unix(), Hourly: true}
+	if err := coordinator.Create(plan, nil, quotaescrow.ControlTarget{Mode: "shared", Eventual: true, Limit: 1000, ResetSchedule: schedule}, keys); err != nil {
 		t.Fatal(err)
 	}
 	if _, done, err := coordinator.Resume(context.Background(), plan.ID); err != nil || !done {
@@ -136,6 +137,17 @@ func TestMeshQuorumPanelResetWhileMasterOfflineAndRejoin(t *testing.T) {
 	if err == nil {
 		t.Fatal("isolated manager changed the subscription")
 	}
+	// The elected majority also owns automatic schedules while the master is
+	// offline. A retry in the same period must not reset a second time.
+	for i := 0; i < 2; i++ {
+		if err := quorums[current.Owner].scheduleCycle(context.Background(), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scheduled, err := current.FSM.Policy(plan.Subscription)
+	if err != nil || scheduled.Version != 2 || scheduled.ResetGeneration != 2 {
+		t.Fatal("offline automatic reset", scheduled, err)
+	}
 	// Any admin in the connected majority can submit, even if it isn't leader.
 	admin := &MeshAdministrator{Local: b, Quorum: quorums["b"]}
 	if _, err := admin.Queue(context.Background(), plan.Subscription, "reset", "request-once", nil, nil); err != nil {
@@ -161,7 +173,7 @@ func TestMeshQuorumPanelResetWhileMasterOfflineAndRejoin(t *testing.T) {
 	if used, _ := l.Billed(); used != 17 {
 		t.Fatal("renew or retried reset lost new usage", used)
 	}
-	if l.Policy().ResetGeneration != 2 || l.Policy().Version != 3 {
+	if l.Policy().ResetGeneration != 3 || l.Policy().Version != 4 {
 		t.Fatal("wrong policy cycle")
 	}
 	mu.Lock()
@@ -171,14 +183,14 @@ func TestMeshQuorumPanelResetWhileMasterOfflineAndRejoin(t *testing.T) {
 	leader("a", "b", "c")
 	bounded, release := context.WithTimeout(context.Background(), 3*time.Second)
 	defer release()
-	if err := quorums["a"].synchronize(bounded, plan.Subscription, 3); err != nil {
+	if err := quorums["a"].synchronize(bounded, plan.Subscription, 4); err != nil {
 		t.Fatal(err)
 	}
 	caught, err := quotaescrow.NewStore(a.DB).Load(plan.Subscription)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if caught.Policy().Version != 3 || caught.Policy().Limit != 2000 {
+	if caught.Policy().Version != 4 || caught.Policy().Limit != 2000 {
 		t.Fatal("master did not learn majority update")
 	}
 	if err := caught.Merge(l.Snapshot()); err != nil {

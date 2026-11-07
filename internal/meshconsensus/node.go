@@ -239,6 +239,9 @@ func (n *Node) Close() {
 }
 
 func (n *Node) Apply(ctx context.Context, c Command) (Result, error) {
+	if c.Kind == "scheduled-reset" && (c.Patch == nil || c.Patch.ScheduledAt <= 0 || c.Patch.ScheduledAt > time.Now().Unix()) {
+		return Result{}, errors.New("scheduled reset boundary has not elapsed")
+	}
 	if n.Raft.State() != raft.Leader {
 		return Result{}, raft.ErrNotLeader
 	}

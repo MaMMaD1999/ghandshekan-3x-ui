@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -75,7 +76,12 @@ func DraftPolicyChange(previous Policy, id, kind string, target ControlTarget) (
 	u.Next.Version++
 	u.Next.Limit, u.Next.ExpiresAt = target.Limit, target.ExpiresAt
 	u.Next.Disabled, u.Next.Unlimited = target.Disabled, target.Unlimited
-	if kind == "reset" {
+	if kind == "scheduled-reset" {
+		u.Next.ScheduledThrough = target.ScheduledAt
+	} else if target.ScheduledAt != 0 {
+		return u, errors.New("unexpected scheduled boundary")
+	}
+	if kind == "reset" || kind == "scheduled-reset" {
 		if u.Next.ResetGeneration == math.MaxUint64 {
 			return u, errors.New("generation exhausted")
 		}
@@ -89,7 +95,7 @@ func VerifyPolicyShape(previous Policy, u PolicyUpdate) error {
 	if _, err := New(previous); err != nil {
 		return err
 	}
-	if previous.Version == 0 || previous.Version == math.MaxUint64 || u.ID == "" || len(u.ID) > 128 || (u.Kind != "renew" && u.Kind != "reset") || u.PreviousHash != PolicyHash(previous) {
+	if previous.Version == 0 || previous.Version == math.MaxUint64 || u.ID == "" || len(u.ID) > 128 || (u.Kind != "renew" && u.Kind != "reset" && u.Kind != "scheduled-reset") || u.PreviousHash != PolicyHash(previous) {
 		return errors.New("invalid shared lifecycle transition")
 	}
 	if _, err := New(u.Next); err != nil {
@@ -99,7 +105,14 @@ func VerifyPolicyShape(previous Policy, u PolicyUpdate) error {
 	expected.Version++
 	expected.Limit, expected.ExpiresAt = u.Next.Limit, u.Next.ExpiresAt
 	expected.Disabled, expected.Unlimited = u.Next.Disabled, u.Next.Unlimited
-	if u.Kind == "reset" {
+	if u.Kind == "scheduled-reset" {
+		boundary, err := previous.ResetSchedule.Due(time.Unix(u.Next.ScheduledThrough, 0), previous.ScheduledThrough)
+		if err != nil || boundary == 0 || boundary != u.Next.ScheduledThrough || previous.ControlEpoch == "" || previous.Disabled || previous.Limit != u.Next.Limit || previous.ExpiresAt != u.Next.ExpiresAt || previous.Disabled != u.Next.Disabled || previous.Unlimited != u.Next.Unlimited {
+			return errors.New("invalid or repeated scheduled reset boundary")
+		}
+		expected.ScheduledThrough = boundary
+	}
+	if u.Kind == "reset" || u.Kind == "scheduled-reset" {
 		if expected.ResetGeneration == math.MaxUint64 {
 			return errors.New("generation exhausted")
 		}

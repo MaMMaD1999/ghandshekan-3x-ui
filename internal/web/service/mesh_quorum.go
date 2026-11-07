@@ -16,13 +16,14 @@ import (
 )
 
 type MeshQuorum struct {
-	Node         *meshconsensus.Node
-	Wire         *meshconsensus.Wire
-	Transport    *meshconsensus.Transport
-	Local        *MeshControl
-	mu           sync.Mutex
-	certificates map[string]quotaescrow.PolicyUpdate
-	cursor       int
+	Node           *meshconsensus.Node
+	Wire           *meshconsensus.Wire
+	Transport      *meshconsensus.Transport
+	Local          *MeshControl
+	mu             sync.Mutex
+	certificates   map[string]quotaescrow.PolicyUpdate
+	cursor         int
+	scheduleCursor string
 }
 
 func OpenMeshQuorum(c *MeshConfig, local *MeshControl, trust *tls.Config, direct *http.Client, proxy func() string) (*MeshQuorum, error) {
@@ -174,12 +175,13 @@ func (q *MeshQuorum) QueuePatch(ctx context.Context, sub, kind, key string, patc
 }
 
 func (q *MeshQuorum) SyncCycle(ctx context.Context) error {
+	scheduleErr := q.scheduleCycle(ctx, time.Now())
 	var records []quotaescrow.Record
 	if err := q.Local.DB.Select("subscription", "policy_json").Order("subscription").Find(&records).Error; err != nil {
-		return err
+		return errors.Join(scheduleErr, err)
 	}
 	if len(records) == 0 {
-		return nil
+		return scheduleErr
 	}
 	work := 0
 	for i := 0; i < len(records) && work < 8; i++ {
@@ -187,19 +189,22 @@ func (q *MeshQuorum) SyncCycle(ctx context.Context) error {
 		q.cursor = (index + 1) % len(records)
 		var p quotaescrow.Policy
 		if json.Unmarshal([]byte(records[index].PolicyJSON), &p) != nil {
-			return errors.New("invalid local mesh policy")
+			return errors.Join(scheduleErr, errors.New("invalid local mesh policy"))
 		}
 		if p.ControlEpoch != q.Node.Epoch {
 			continue
 		}
 		latest, err := q.Node.FSM.Policy(p.Subscription)
-		if err != nil || latest.Version <= p.Version {
+		if err != nil {
+			continue
+		}
+		if latest.Version <= p.Version {
 			continue
 		}
 		work++
 		if err := q.synchronize(ctx, p.Subscription, latest.Version); err != nil {
-			return err
+			return errors.Join(scheduleErr, err)
 		}
 	}
-	return nil
+	return scheduleErr
 }
