@@ -50,7 +50,7 @@ func (b PlanBuilder) inventory(ctx context.Context, owner string, emails []strin
 // duplicate physical aliases before any prepare request. Device aliases can be
 // separate roots of the same subscription; the target policy is explicit.
 func (b PlanBuilder) Enrollment(ctx context.Context, subscription string, roots []LegacyRoot) (ControlPlan, map[string]int64, error) {
-	p := ControlPlan{ID: controlNonce(), Subscription: subscription, Kind: "enroll", NextEpoch: controlNonce(), Claims: map[string][]AliasClaim{}, AccountingRoots: slices.Clone(roots)}
+	p := ControlPlan{ID: controlNonce(), Subscription: subscription, Kind: "enroll", NextEpoch: controlNonce(), Claims: map[string][]AliasClaim{}, AccountingRoots: slices.Clone(roots), InitialStates: map[string]map[string]string{}}
 	weights := map[string]int64{}
 	seen := map[LegacyRoot]bool{}
 	queue := slices.Clone(roots)
@@ -78,6 +78,13 @@ func (b PlanBuilder) Enrollment(ctx context.Context, subscription string, roots 
 		if alias.ExpiresAt < 0 {
 			return ControlPlan{}, nil, errors.New("activate first-use expiry before enrollment")
 		}
+		if alias.InitialState == "" {
+			return ControlPlan{}, nil, errors.New("member does not support atomic enrollment state guards")
+		}
+		if p.InitialStates[root.Owner] == nil {
+			p.InitialStates[root.Owner] = map[string]string{}
+		}
+		p.InitialStates[root.Owner][root.Alias] = alias.InitialState
 		p.Claims[root.Owner] = append(p.Claims[root.Owner], alias.Claim)
 		if alias.Local {
 			weights[root.Owner] = 1
@@ -173,6 +180,9 @@ func (b PlanBuilder) CheckReady(ctx context.Context, plan ControlPlan) error {
 					return errors.New("membership changed since planning")
 				}
 				if plan.Kind == "enroll" {
+					if plan.InitialStates != nil && alias.InitialState != plan.InitialStates[owner][alias.Claim.Email] {
+						return errors.New("subscription settings changed since enrollment planning")
+					}
 					if alias.Subscription != "" || alias.Epoch != "" {
 						return errors.New("alias enrolled since planning")
 					}

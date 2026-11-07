@@ -19,13 +19,14 @@ type AliasClaim struct {
 // Timing is on the signed envelope so a retry may renew its authentication
 // window without changing or abandoning a durable barrier.
 type ControlPlan struct {
-	ID              string                  `json:"id"`
-	Subscription    string                  `json:"subscription"`
-	Kind            string                  `json:"kind"`
-	Epoch           string                  `json:"epoch"`
-	NextEpoch       string                  `json:"nextEpoch"`
-	Claims          map[string][]AliasClaim `json:"claims"`
-	AccountingRoots []LegacyRoot            `json:"accountingRoots,omitempty"`
+	ID              string                       `json:"id"`
+	Subscription    string                       `json:"subscription"`
+	Kind            string                       `json:"kind"`
+	Epoch           string                       `json:"epoch"`
+	NextEpoch       string                       `json:"nextEpoch"`
+	Claims          map[string][]AliasClaim      `json:"claims"`
+	AccountingRoots []LegacyRoot                 `json:"accountingRoots,omitempty"`
+	InitialStates   map[string]map[string]string `json:"initialStates,omitempty"`
 }
 
 type ControlCommand struct {
@@ -82,6 +83,22 @@ func (p ControlPlan) Validate() error {
 	}
 	if n > 100000 {
 		return errors.New("too many aliases")
+	}
+	if p.InitialStates != nil {
+		if p.Kind != "enroll" || len(p.InitialStates) != len(p.Claims) {
+			return errors.New("initial state guards require exact enrollment membership")
+		}
+		for owner, claims := range p.Claims {
+			if len(p.InitialStates[owner]) != len(claims) {
+				return errors.New("initial state guard omits an alias")
+			}
+			for _, claim := range claims {
+				h, err := hex.DecodeString(p.InitialStates[owner][claim.Email])
+				if err != nil || len(h) != sha256.Size {
+					return errors.New("invalid initial state guard")
+				}
+			}
+		}
 	}
 	if len(p.AccountingRoots) != 0 {
 		if p.Kind != "enroll" || len(p.AccountingRoots) > n {

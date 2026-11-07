@@ -39,8 +39,23 @@ type MeshAdministrator struct {
 var activeMeshAdministrator atomic.Pointer[MeshAdministrator]
 
 type MeshOperationResult struct {
-	Operation string `json:"operation"`
-	Pending   bool   `json:"pending"`
+	Operation string            `json:"operation"`
+	Pending   bool              `json:"pending"`
+	Scope     *MeshAccountScope `json:"scope,omitempty"`
+	Frozen    []MeshFrozenRoot  `json:"frozen,omitempty"`
+}
+
+type MeshFrozenRoot struct {
+	Owner string `json:"owner"`
+	Email string `json:"email"`
+	Up    int64  `json:"up"`
+	Down  int64  `json:"down"`
+}
+
+type MeshAccountScope struct {
+	Subscription string `json:"subscription"`
+	ControlEpoch string `json:"controlEpoch"`
+	Epoch        string `json:"epoch"`
 }
 
 type MeshAvailability struct {

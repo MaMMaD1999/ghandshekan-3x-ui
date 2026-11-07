@@ -32,6 +32,7 @@ type InspectedAlias struct {
 	ExpiresAt    int64      `json:"expiresAt"`
 	Enabled      bool       `json:"enabled"`
 	LocalBilled  int64      `json:"localBilled"`
+	InitialState string     `json:"initialState,omitempty"`
 }
 type Inventory struct {
 	Owner       string           `json:"owner"`
@@ -107,6 +108,12 @@ func VerifyInventory(r Inventory, request Inspection, key ed25519.PublicKey) err
 		h, err := hex.DecodeString(alias.Claim.Fingerprint)
 		if alias.Claim.Email != request.Emails[i] || err != nil || len(h) != 32 || alias.Limit < 0 || alias.LocalBilled < 0 {
 			return errors.New("invalid inventory alias")
+		}
+		if alias.InitialState != "" {
+			h, err := hex.DecodeString(alias.InitialState)
+			if err != nil || len(h) != sha256.Size {
+				return errors.New("invalid inventory state guard")
+			}
 		}
 	}
 	return nil

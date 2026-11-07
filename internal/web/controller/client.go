@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"math"
@@ -22,6 +23,19 @@ import (
 
 func notifyClientsChanged() {
 	websocket.BroadcastInvalidate(websocket.MessageTypeClients)
+}
+
+// Legacy integrations predate retry keys. Preserve their one-request/one-action
+// semantics, return the generated key, and require callers retrying a lost reply
+// to supply that same key. Dedicated mesh APIs still require an explicit key.
+func legacyClientOperationKey(c *gin.Context) string {
+	key := c.GetHeader("Idempotency-Key")
+	if key == "" {
+		key = "legacy-" + rand.Text()
+		c.Request.Header.Set("Idempotency-Key", key)
+	}
+	c.Header("Idempotency-Key", key)
+	return key
 }
 
 func parseInboundIdsQuery(raw string) []int {
@@ -87,8 +101,10 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/resetTraffic/:email", a.resetTrafficByEmail)
 	g.POST("/meshPolicy/:email", a.meshPolicy)
 	g.POST("/meshEnroll", a.meshEnroll)
+	g.POST("/meshEnrollNative", a.meshEnrollNative)
 	g.POST("/meshDevice", a.meshDevice)
 	g.POST("/meshAccounts", a.meshAccounts)
+	g.POST("/meshParentPolicy", a.meshParentPolicy)
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
 	g.POST("/clearIps/:email", a.clearIps)
@@ -339,7 +355,7 @@ func (a *ClientController) setExternalLinks(c *gin.Context) {
 
 func (a *ClientController) resetAllTraffics(c *gin.Context) {
 	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
-		handled, count, restart, err := service.ResetAllWithMesh(c.Request.Context(), c.GetHeader("Idempotency-Key"))
+		handled, count, restart, err := service.ResetAllWithMesh(c.Request.Context(), legacyClientOperationKey(c))
 		if err != nil {
 			jsonObj(c, nil, err)
 			return
@@ -389,7 +405,7 @@ func (a *ClientController) bulkAdjust(c *gin.Context) {
 		// Keep credential/HWID edits in the existing guarded path. A mixed
 		// request must never apply a quota change and then lose its other half.
 		if strings.TrimSpace(req.Flow) == "" && req.LimitHwid == nil && strings.TrimSpace(req.AdTag) == "" {
-			handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), &meshconsensus.PolicyPatch{AddBytes: req.AddBytes, AddSeconds: int64(req.AddDays) * 86400})
+			handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, legacyClientOperationKey(c), &meshconsensus.PolicyPatch{AddBytes: req.AddBytes, AddSeconds: int64(req.AddDays) * 86400})
 			if err != nil {
 				jsonObj(c, nil, err)
 				return
@@ -502,7 +518,7 @@ func (a *ClientController) bulkSetEnable(c *gin.Context, enable bool) {
 	meshCount := 0
 	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
 		disabled := !enable
-		handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), &meshconsensus.PolicyPatch{Disabled: &disabled})
+		handled, count, ordinary, err := service.ChangeManyWithMesh(c.Request.Context(), req.Emails, legacyClientOperationKey(c), &meshconsensus.PolicyPatch{Disabled: &disabled})
 		if err != nil {
 			jsonObj(c, nil, err)
 			return
@@ -616,7 +632,7 @@ func (a *ClientController) resetTrafficByEmail(c *gin.Context) {
 	// Node-sync tokens can replay legacy resets, but must never acquire the
 	// local authority key's privilege to issue a new mesh billing cycle.
 	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
-		managed, result, meshErr := service.TryMeshLifecycle(c.Request.Context(), email, "reset", c.GetHeader("Idempotency-Key"), nil, nil)
+		managed, result, meshErr := service.TryMeshLifecycle(c.Request.Context(), email, "reset", legacyClientOperationKey(c), nil, nil)
 		if meshErr != nil {
 			jsonMsg(c, I18nWeb(c, "somethingWentWrong"), meshErr)
 			return
@@ -690,6 +706,28 @@ func (a *ClientController) meshEnroll(c *gin.Context) {
 	}
 }
 
+func (a *ClientController) meshEnrollNative(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	result, err := service.QueueNativeMeshEnrollment(ctx, req.Email, c.GetHeader("Idempotency-Key"))
+	jsonObj(c, result, err)
+	if err == nil {
+		notifyClientsChanged()
+	}
+}
+
 func (a *ClientController) meshDevice(c *gin.Context) {
 	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
 		c.AbortWithStatus(http.StatusForbidden)
@@ -726,6 +764,26 @@ func (a *ClientController) meshAccounts(c *gin.Context) {
 	}
 	result, err := service.ReadMeshAccounts(database.GetDB(), req.Subscriptions)
 	jsonObj(c, result, err)
+}
+
+func (a *ClientController) meshParentPolicy(c *gin.Context) {
+	if scope, exists := c.Get("api_token_scope"); exists && scope != model.ApiScopeAdmin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+	var req service.MeshParentPolicyInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	result, err := service.QueueMeshParentPolicy(ctx, req, c.GetHeader("Idempotency-Key"))
+	jsonObj(c, result, err)
+	if err == nil {
+		notifyClientsChanged()
+	}
 }
 
 type trafficUpdateRequest struct {
@@ -895,7 +953,7 @@ func (a *ClientController) bulkResetTraffic(c *gin.Context) {
 		return
 	}
 	if scope, exists := c.Get("api_token_scope"); !exists || scope == model.ApiScopeAdmin {
-		handled, count, restart, err := service.ResetManyWithMesh(c.Request.Context(), req.Emails, c.GetHeader("Idempotency-Key"), false)
+		handled, count, restart, err := service.ResetManyWithMesh(c.Request.Context(), req.Emails, legacyClientOperationKey(c), false)
 		if err != nil {
 			jsonObj(c, nil, err)
 			return

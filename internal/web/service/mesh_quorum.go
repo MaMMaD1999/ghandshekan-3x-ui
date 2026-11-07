@@ -24,6 +24,8 @@ type MeshQuorum struct {
 	certificates   map[string]quotaescrow.PolicyUpdate
 	cursor         int
 	scheduleCursor string
+	revocations    *MeshEnrollmentAdministrator
+	revokeCursor   string
 }
 
 func OpenMeshQuorum(c *MeshConfig, local *MeshControl, trust *tls.Config, direct *http.Client, proxy func() string) (*MeshQuorum, error) {
@@ -59,7 +61,18 @@ func OpenMeshQuorum(c *MeshConfig, local *MeshControl, trust *tls.Config, direct
 		}
 		return tr.Handle(ctx, from, kind, body)
 	})
-	return &MeshQuorum{Node: n, Wire: wire, Transport: tr, Local: local, certificates: map[string]quotaescrow.PolicyUpdate{}}, nil
+	q := &MeshQuorum{Node: n, Wire: wire, Transport: tr, Local: local, certificates: map[string]quotaescrow.PolicyUpdate{}}
+	// Revocation needs the existing certified catalog, never the root
+	// enrollment key. Its retry journal survives an offline master.
+	if err := local.DB.AutoMigrate(&meshAliasJob{}); err != nil {
+		q.Close()
+		return nil, err
+	}
+	q.revocations = &MeshEnrollmentAdministrator{
+		manager:     &MeshAdministrator{Local: local, Coordinator: &quotaescrow.Coordinator{DB: local.DB}},
+		aliasPolicy: n.FSM.Policy, aliasExecute: n.Execute, aliasSync: q.synchronize,
+	}
+	return q, nil
 }
 func (q *MeshQuorum) Close() {
 	if q == nil {
@@ -169,6 +182,11 @@ func (q *MeshQuorum) QueuePatch(ctx context.Context, sub, kind, key string, patc
 }
 
 func (q *MeshQuorum) SyncCycle(ctx context.Context) error {
+	if q.revocations != nil {
+		bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+		q.revokeCursor = q.revocations.resumeAliasJobs(bounded, q.revokeCursor)
+		cancel()
+	}
 	scheduleErr := q.scheduleCycle(ctx, time.Now())
 	var records []quotaescrow.Record
 	if err := q.Local.DB.Select("subscription", "policy_json").Order("subscription").Find(&records).Error; err != nil {

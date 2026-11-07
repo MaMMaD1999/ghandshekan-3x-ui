@@ -108,3 +108,31 @@ func TestDevicePlannerRejectsUnsafeAttachment(t *testing.T) {
 		})
 	}
 }
+
+func TestDevicePlannerIndependentRootsAndOfflineManagerRevocation(t *testing.T) {
+	b, p, rows := aliasPlannerFixture(t)
+	for owner := range rows {
+		a := rows[owner]["device-1"]
+		a.Children = nil
+		rows[owner]["device-1"] = a
+	}
+	patches, err := b.AliasChangesForRoots(context.Background(), p, "master", "device-1", false, []string{"node-b", "master", "node-a"})
+	if err != nil || len(patches) != 3 {
+		t.Fatal(patches, err)
+	}
+	u, err := DraftAliasChanges(p, "attach", patches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Inspect = func(context.Context, string, SignedInspection) (Inventory, error) {
+		t.Fatal("revocation must not need a live manager")
+		return Inventory{}, errors.New("offline")
+	}
+	patches, err = b.AliasChanges(context.Background(), u.Next, "node-a", "device-1", true)
+	if err != nil || len(patches) != 3 {
+		t.Fatal(patches, err)
+	}
+	if _, err := b.AliasChanges(context.Background(), u.Next, "unknown", "device-1", true); err == nil {
+		t.Fatal("unregistered controller admitted")
+	}
+}

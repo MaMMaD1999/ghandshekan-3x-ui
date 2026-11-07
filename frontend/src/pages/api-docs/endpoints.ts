@@ -1551,17 +1551,32 @@ export const sections: readonly Section[] = [
         method: 'POST',
         path: '/panel/api/clients/meshEnroll',
         summary:
-          'Enroll existing client aliases under one shared subscription on a configured enrollment manager. Administrator authorization and a stable Idempotency-Key are required. Inspect the mesh capabilities first. limit is bytes; expiresAt is Unix seconds (0 means no expiry); unlimited must be explicit. Discovery is read-only, then a durable operation drains the selected aliases and preserves their verified historical usage exactly once. Retry the identical request and key if pending or if a response is lost. This endpoint does not create credentials, replace an existing enrollment, or change node membership.',
+          'Enroll existing client aliases under one shared subscription on a configured enrollment manager. Administrator authorization and a stable Idempotency-Key are required. enrollmentVersion: 2 also accepts explicit roots [{owner, alias}] instead of local emails; roots must include this manager. The response includes the immutable lifetime scope and final frozen up/down totals for every accounting root. limit is bytes; expiresAt is Unix seconds; unlimited must be explicit. Discovery is read-only, then a durable operation drains selected aliases and preserves their verified historical usage exactly once. Retry the identical request and key if pending or if a response is lost. This endpoint does not create credentials, replace an enrollment, or change node membership.',
         body: '{\n  "subscription": "account-123",\n  "emails": ["alice-phone", "alice-laptop"],\n  "limit": 10737418240,\n  "expiresAt": 1800000000,\n  "disabled": false,\n  "unlimited": false\n}',
+        response: '{\n  "success": true,\n  "obj": { "operation": "...", "pending": false }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/meshEnrollNative',
+        summary:
+          'Enroll one existing native subscription and its discovered node copies while preserving the local panel quota, enabled state, expiry and verified historical usage. No quota or parent identity is accepted from the browser. Requires administrator authorization, a configured enrollment manager and a stable Idempotency-Key. Concurrent policy edits are rejected before the local admission barrier; retrying a committed request recovers its original intent. First-use expiry must already be active; legacy automatic-renewal schedules require explicit migration. This operation may briefly drain the selected subscriber, never unrelated users.',
+        body: '{\n  "email": "alice"\n}',
         response: '{\n  "success": true,\n  "obj": { "operation": "...", "pending": false }\n}',
       },
       {
         method: 'POST',
         path: '/panel/api/clients/meshDevice',
         summary:
-          'Attach or revoke one logical device in an enrolled shared subscription. Requires its configured enrollment manager, administrator authorization and a stable Idempotency-Key. Attachment discovers all copies through signed inventories; each new copy must already exist disabled, have no historical traffic, and belong to an enrolled traffic member. Revocation covers every committed copy even when a peer is offline. This preserves quota, expiry, reset generation and lifetime counters. Retrying the same key and body returns the original decision. majorityCommitted confirms the policy decision; applicationPending does not imply that every offline member has applied it. Credential replacement and new traffic members require a separate transition.',
+          'Attach or revoke one logical device in an enrolled shared subscription. Requires administrator authorization and a stable Idempotency-Key. Attachment uses its enrollment manager and signed inventory, optionally across explicit roots; new copies must exist disabled with no historical traffic under registered members. Revocation can be submitted through any registered controller in the connected majority without its master. Optional controlEpoch and epoch must match exactly. Quota, expiry, reset generation and lifetime counters are preserved. Retries return the original policyVersion, policyHash and resetGeneration receipt. applicationPending does not promise that offline members have applied it. Credential replacement and new traffic members require a separate transition.',
         body: '{\n  "subscription": "account-123",\n  "email": "alice-phone",\n  "revoke": true\n}',
         response: '{\n  "success": true,\n  "obj": { "operation": "...", "majorityCommitted": true, "applicationPending": true }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/meshParentPolicy',
+        summary:
+          'Administrator-only compare-and-set reset/renewal for an explicitly enrolled parent. Requires parentLifecycleVersion: 1, exact control/lifetime scope, expected policy hash and a stable Idempotency-Key. Both disabled and unlimited must be explicit. The majority recovers accepted retries before checking the current hash, so a lost reply cannot duplicate a reset. A stale unaccepted request cannot overwrite newer policy. majorityCommitted confirms the decision; applicationPending remains true because disconnected members may not yet have caught up.',
+        body: '{\n  "subscription": "account-123",\n  "controlEpoch": "cluster-generation",\n  "epoch": "lifetime-identity",\n  "expectedHash": "64-character-policy-sha256",\n  "kind": "renew",\n  "limit": 10737418240,\n  "expiresAt": 1800000000,\n  "disabled": false,\n  "unlimited": false\n}',
       },
       {
         method: 'POST',

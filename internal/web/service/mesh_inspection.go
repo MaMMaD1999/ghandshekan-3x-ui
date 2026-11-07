@@ -33,6 +33,10 @@ func (c *MeshControl) Inspect(signed quotaescrow.SignedInspection) (quotaescrow.
 			if err != nil {
 				return err
 			}
+			initialState, err := MeshEnrollmentState(tx, email)
+			if err != nil {
+				return err
+			}
 			var client model.ClientRecord
 			if err := tx.Where("email = ?", email).First(&client).Error; err != nil {
 				return err
@@ -57,7 +61,7 @@ func (c *MeshControl) Inspect(signed quotaescrow.SignedInspection) (quotaescrow.
 			}
 			// Membership stays in its lifetime epoch across billing resets. The
 			// cycle-qualified reporting token must not reject a valid reattachment.
-			out.Aliases = append(out.Aliases, quotaescrow.InspectedAlias{Claim: quotaescrow.AliasClaim{Email: email, Fingerprint: fingerprint}, Local: local > 0, Children: children, Subscription: binding.Subscription, Epoch: scopes[email].LifetimeEpoch, Pending: scopes[email].Pending, Limit: client.TotalGB, ExpiresAt: client.ExpiryTime, Enabled: client.Enable, LocalBilled: usage.Billed})
+			out.Aliases = append(out.Aliases, quotaescrow.InspectedAlias{Claim: quotaescrow.AliasClaim{Email: email, Fingerprint: fingerprint}, InitialState: initialState, Local: local > 0, Children: children, Subscription: binding.Subscription, Epoch: scopes[email].LifetimeEpoch, Pending: scopes[email].Pending, Limit: client.TotalGB, ExpiresAt: client.ExpiryTime, Enabled: client.Enable, LocalBilled: usage.Billed})
 		}
 		return nil
 	})

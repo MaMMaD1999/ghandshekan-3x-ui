@@ -258,6 +258,20 @@ func (c *MeshControl) Execute(ctx context.Context, signed quotaescrow.SignedCont
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		// The earlier read is only a preflight. Serialize this comparison with
+		// legacy client writes so none can slip between discovery and fencing.
+		for _, claim := range claims {
+			fingerprint, err := MeshAliasFingerprint(tx, claim.Email)
+			if err != nil || fingerprint != claim.Fingerprint {
+				return errors.New("client ownership/credential changed before prepare")
+			}
+			if plan.InitialStates != nil {
+				initialState, err := MeshEnrollmentState(tx, claim.Email)
+				if err != nil || initialState != plan.InitialStates[c.Owner][claim.Email] {
+					return errors.New("subscription settings changed before prepare")
+				}
+			}
+		}
 		pending, err := meshPendingAliases(tx)
 		if err != nil {
 			return err

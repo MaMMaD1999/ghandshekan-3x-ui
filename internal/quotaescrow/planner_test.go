@@ -19,7 +19,7 @@ func plannerFixture(t *testing.T) (PlanBuilder, map[string]map[string]InspectedA
 	}
 	rows := map[string]map[string]InspectedAlias{}
 	for owner := range keys {
-		rows[owner] = map[string]InspectedAlias{"device-1": {Claim: AliasClaim{Email: "device-1", Fingerprint: strings.Repeat("ab", 32)}, Local: owner != "master", Enabled: true, Limit: 1000}}
+		rows[owner] = map[string]InspectedAlias{"device-1": {Claim: AliasClaim{Email: "device-1", Fingerprint: strings.Repeat("ab", 32)}, InitialState: strings.Repeat("ef", 32), Local: owner != "master", Enabled: true, Limit: 1000}}
 	}
 	a := rows["master"]["device-1"]
 	a.Children = []string{"node-a", "node-b"}
@@ -111,5 +111,37 @@ func TestTransitionPlannerRetainsExactOldMembership(t *testing.T) {
 	delete(rows, "node-b")
 	if _, err = b.Transition(context.Background(), "reset", previous, p); err == nil {
 		t.Fatal("silently dropped missing old member")
+	}
+}
+
+func TestEnrollmentStateGuardBindsEachMemberAndDoesNotFollowRenewal(t *testing.T) {
+	b, rows := plannerFixture(t)
+	p, _, err := b.Enrollment(context.Background(), "sub", []LegacyRoot{{Owner: "master", Alias: "device-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.InitialStates) != 3 {
+		t.Fatal("incomplete state guards", p.InitialStates)
+	}
+	changed := rows["node-a"]["device-1"]
+	changed.InitialState = strings.Repeat("cd", 32)
+	rows["node-a"]["device-1"] = changed
+	if err := b.CheckReady(context.Background(), p); err == nil {
+		t.Fatal("accepted changed initial quota/deadline")
+	}
+	changed.InitialState = ""
+	rows["node-a"]["device-1"] = changed
+	if _, _, err := b.Enrollment(context.Background(), "new", p.AccountingRoots); err == nil {
+		t.Fatal("enrolled member without atomic prepare support")
+	}
+	missing := clone(p)
+	delete(missing.InitialStates["node-a"], "device-1")
+	if err := missing.Validate(); err == nil {
+		t.Fatal("accepted omitted state guard")
+	}
+	prior := Policy{Subscription: "sub", Epoch: p.NextEpoch, Keys: b.Keys, Version: 1}
+	next, err := b.Transition(context.Background(), "renew", p, prior)
+	if err != nil || next.InitialStates != nil {
+		t.Fatal("initial settings constrained a later renewal", next, err)
 	}
 }

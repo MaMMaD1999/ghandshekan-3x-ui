@@ -11,11 +11,21 @@ import (
 // A new metering owner requires a distinct accounting-membership transition;
 // its identity and historical bytes are never inferred by this API.
 func (b PlanBuilder) AliasChanges(ctx context.Context, p Policy, owner, email string, revoke bool) ([]AliasPatch, error) {
+	return b.AliasChangesForRoots(ctx, p, owner, email, revoke, nil)
+}
+
+func (b PlanBuilder) AliasChangesForRoots(ctx context.Context, p Policy, owner, email string, revoke bool, roots []string) ([]AliasPatch, error) {
 	if _, err := New(p); err != nil {
 		return nil, err
 	}
-	if p.Aliases == nil || p.Manager != owner || email == "" || len(email) > 512 {
+	if p.Aliases == nil || email == "" || len(email) > 512 {
 		return nil, errors.New("device membership requires its enrollment manager and catalog")
+	}
+	// Revocation uses only the committed catalog and still has to win a fresh
+	// majority in the control journal. A disconnected enrollment manager must
+	// not prevent the connected majority from removing a stolen session.
+	if _, registered := p.ControlKeys[owner]; !registered || (!revoke && p.Manager != owner) {
+		return nil, errors.New("device attachment requires its manager; revocation requires a registered controller")
 	}
 	var patches []AliasPatch
 	if revoke {
@@ -25,7 +35,13 @@ func (b PlanBuilder) AliasChanges(ctx context.Context, p Policy, owner, email st
 			}
 		}
 	} else {
-		queue, seen := []string{owner}, map[string]bool{}
+		if len(roots) == 0 {
+			roots = []string{owner}
+		}
+		if len(roots) > 256 || !slices.Contains(roots, owner) {
+			return nil, errors.New("device accounting roots must include its manager")
+		}
+		queue, seen := slices.Clone(roots), map[string]bool{}
 		for len(queue) > 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err

@@ -62,6 +62,21 @@ func PreparedHistoricalUsage(plan ControlPlan, receipts []ControlReceipt) (int64
 // A control-only root's snapshot comes from the trusted master adapter, not an
 // unsigned value supplied by a browser.
 func FrozenHistoricalUsage(roots []LegacyRoot, snapshots []LegacySnapshot) (int64, error) {
+	return frozenHistoricalUsage(roots, snapshots, nil)
+}
+
+// FrozenHistoricalCounters is the same verified fold, split by explicit root
+// for an application's final legacy checkpoint. It never exposes credentials.
+func FrozenHistoricalCounters(roots []LegacyRoot, snapshots []LegacySnapshot) (map[LegacyRoot]LegacyCounter, error) {
+	out := map[LegacyRoot]LegacyCounter{}
+	_, err := frozenHistoricalUsage(roots, snapshots, func(root LegacyRoot, counter LegacyCounter) { out[root] = counter })
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func frozenHistoricalUsage(roots []LegacyRoot, snapshots []LegacySnapshot, onRoot func(LegacyRoot, LegacyCounter)) (int64, error) {
 	if len(roots) == 0 || len(snapshots) == 0 {
 		return 0, errors.New("historical accounting scope is empty")
 	}
@@ -146,6 +161,9 @@ func FrozenHistoricalUsage(roots []LegacyRoot, snapshots []LegacySnapshot) (int6
 		counter, err := visit(address{root.Owner, root.Alias})
 		if err != nil {
 			return 0, err
+		}
+		if onRoot != nil {
+			onRoot(root, counter)
 		}
 		billed, err = add(billed, counter.Up)
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,24 +23,27 @@ import (
 // still require the majority's policy log; this service cannot renew/reset
 // them or bypass the pinned membership registry.
 type MeshEnrollmentAdministrator struct {
-	manager      *MeshAdministrator
-	builder      quotaescrow.PlanBuilder
-	mu           sync.Mutex
-	aliasMu      sync.Mutex
-	aliasPolicy  func(string) (quotaescrow.Policy, error)
-	aliasExecute func(context.Context, meshconsensus.Command) (meshconsensus.Result, error)
-	aliasSync    func(context.Context, string, uint64) error
+	manager       *MeshAdministrator
+	builder       quotaescrow.PlanBuilder
+	mu            sync.Mutex
+	aliasMu       sync.Mutex
+	aliasPolicy   func(string) (quotaescrow.Policy, error)
+	aliasExecute  func(context.Context, meshconsensus.Command) (meshconsensus.Result, error)
+	aliasSync     func(context.Context, string, uint64) error
+	nativeEnabled bool
+	nativeExclude []string
 }
 
 var activeMeshEnrollment atomic.Pointer[MeshEnrollmentAdministrator]
 
 type MeshEnrollmentInput struct {
-	Subscription string   `json:"subscription"`
-	Emails       []string `json:"emails"`
-	Limit        int64    `json:"limit"`
-	ExpiresAt    int64    `json:"expiresAt"`
-	Disabled     bool     `json:"disabled"`
-	Unlimited    bool     `json:"unlimited"`
+	Subscription string                   `json:"subscription"`
+	Emails       []string                 `json:"emails"`
+	Roots        []quotaescrow.LegacyRoot `json:"roots,omitempty"`
+	Limit        int64                    `json:"limit"`
+	ExpiresAt    int64                    `json:"expiresAt"`
+	Disabled     bool                     `json:"disabled"`
+	Unlimited    bool                     `json:"unlimited"`
 }
 
 func OpenMeshEnrollmentAdministrator(c *MeshConfig, local *MeshControl, transport quotaescrow.ControlClient, quorum *MeshQuorum) (*MeshEnrollmentAdministrator, error) {
@@ -69,7 +73,7 @@ func OpenMeshEnrollmentAdministrator(c *MeshConfig, local *MeshControl, transpor
 		a.Close()
 		return nil, err
 	}
-	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}, aliasPolicy: quorum.Node.FSM.Policy, aliasExecute: quorum.Node.Execute, aliasSync: quorum.synchronize}, nil
+	return &MeshEnrollmentAdministrator{manager: a, builder: quotaescrow.PlanBuilder{Authority: coordinator.Authority, Keys: c.PeerKeys, Inspect: transport.Inspect}, aliasPolicy: quorum.Node.FSM.Policy, aliasExecute: quorum.Node.Execute, aliasSync: quorum.synchronize, nativeEnabled: c.NativeEnrollment, nativeExclude: slices.Clone(c.NativeEnrollmentExclude)}, nil
 }
 
 func (a *MeshEnrollmentAdministrator) Close() {
@@ -81,6 +85,13 @@ func (a *MeshEnrollmentAdministrator) Close() {
 }
 
 func (a *MeshEnrollmentAdministrator) Run(ctx context.Context) {
+	nativeDone := make(chan struct{})
+	go func() {
+		defer close(nativeDone)
+		if a.nativeEnabled {
+			a.runNativeEnrollment(ctx)
+		}
+	}()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -100,13 +111,18 @@ func (a *MeshEnrollmentAdministrator) Run(ctx context.Context) {
 	}()
 	a.manager.Run(ctx)
 	<-done
+	<-nativeDone
 }
 
 func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrollmentInput, key string) (MeshOperationResult, error) {
+	return a.queue(ctx, input, key, "")
+}
+
+func (a *MeshEnrollmentAdministrator) queue(ctx context.Context, input MeshEnrollmentInput, key, expectedInitialState string) (MeshOperationResult, error) {
 	var out MeshOperationResult
 	input.Emails = trimmedUniqueEmails(input.Emails)
 	slices.Sort(input.Emails)
-	if key == "" || input.Subscription == "" || len(input.Subscription) > 512 || len(input.Emails) == 0 || len(input.Emails) > 2000 || input.Limit < 0 || input.ExpiresAt < 0 || input.ExpiresAt > math.MaxInt64/1000 || (input.Unlimited && input.Limit != 0) {
+	if key == "" || input.Subscription == "" || len(input.Subscription) > 512 || len(input.Emails)+len(input.Roots) == 0 || len(input.Emails)+len(input.Roots) > 2000 || (len(input.Emails) > 0 && len(input.Roots) > 0) || input.Limit < 0 || input.ExpiresAt < 0 || input.ExpiresAt > math.MaxInt64/1000 || (input.Unlimited && input.Limit != 0) {
 		return out, errors.New("invalid initial subscription enrollment")
 	}
 	id, err := meshOperationID(input.Subscription, "enroll", key)
@@ -121,9 +137,35 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 	var job quotaescrow.ControlJob
 	err = c.DB.First(&job, "id = ?", id).Error
 	target := quotaescrow.ControlTarget{Mode: "shared", Eventual: true, Limit: input.Limit, ExpiresAt: input.ExpiresAt, Disabled: input.Disabled, Unlimited: input.Unlimited}
-	roots := make([]quotaescrow.LegacyRoot, len(input.Emails))
-	for i, email := range input.Emails {
-		roots[i] = quotaescrow.LegacyRoot{Owner: c.Owner, Alias: email}
+	roots := slices.Clone(input.Roots)
+	localEmails := slices.Clone(input.Emails)
+	if len(roots) == 0 {
+		for _, email := range input.Emails {
+			roots = append(roots, quotaescrow.LegacyRoot{Owner: c.Owner, Alias: email})
+		}
+	} else {
+		for _, root := range roots {
+			if root.Owner == "" || root.Alias == "" || len(root.Alias) > 512 || strings.ContainsAny(root.Alias, "\x00\r\n") || len(a.builder.Keys[root.Owner]) != 32 {
+				return out, errors.New("explicit enrollment root is not a registered member alias")
+			}
+			if root.Owner == c.Owner {
+				localEmails = append(localEmails, root.Alias)
+			}
+		}
+		if len(localEmails) == 0 {
+			return out, errors.New("enrollment manager must own a root of the requested parent")
+		}
+	}
+	slices.SortFunc(roots, func(a, b quotaescrow.LegacyRoot) int {
+		if v := strings.Compare(a.Owner, b.Owner); v != 0 {
+			return v
+		}
+		return strings.Compare(a.Alias, b.Alias)
+	})
+	for i := 1; i < len(roots); i++ {
+		if roots[i] == roots[i-1] {
+			return out, errors.New("duplicate enrollment accounting root")
+		}
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		var existing int64
@@ -137,7 +179,10 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 		if err != nil {
 			return out, err
 		}
-		target.ResetSchedule, err = enrollmentResetSchedule(a.manager.Local.DB, input.Emails)
+		if expectedInitialState != "" && (len(input.Emails) != 1 || plan.InitialStates[c.Owner][input.Emails[0]] != expectedInitialState) {
+			return out, errors.New("native subscription changed during enrollment discovery; refresh and retry")
+		}
+		target.ResetSchedule, err = enrollmentResetSchedule(a.manager.Local.DB, localEmails)
 		if err != nil {
 			return out, err
 		}
@@ -149,6 +194,7 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 		if err := c.Create(plan, nil, target, keys); err != nil {
 			return out, err
 		}
+		out.Scope = &MeshAccountScope{Subscription: plan.Subscription, ControlEpoch: c.ControlEpoch, Epoch: plan.NextEpoch}
 	} else if err != nil {
 		return out, err
 	} else {
@@ -162,15 +208,50 @@ func (a *MeshEnrollmentAdministrator) Queue(ctx context.Context, input MeshEnrol
 		if plan.Kind != "enroll" || plan.Subscription != input.Subscription || !reflect.DeepEqual(plan.AccountingRoots, roots) || !reflect.DeepEqual(target, saved) {
 			return out, errors.New("enrollment request ID reused with different inputs")
 		}
+		out.Scope = &MeshAccountScope{Subscription: plan.Subscription, ControlEpoch: c.ControlEpoch, Epoch: plan.NextEpoch}
 	}
-	out = MeshOperationResult{Operation: id, Pending: true}
+	out.Operation, out.Pending = id, true
 	_, complete, err := c.Resume(ctx, id)
 	out.Pending = !complete
+	if complete && err == nil {
+		if err = c.DB.First(&job, "id = ?", id).Error; err == nil {
+			out.Frozen, err = enrollmentFrozenRoots(job)
+		}
+	}
 	select {
 	case a.manager.wake <- struct{}{}:
 	default:
 	}
 	return out, err
+}
+
+func enrollmentFrozenRoots(job quotaescrow.ControlJob) ([]MeshFrozenRoot, error) {
+	var plan quotaescrow.ControlPlan
+	var receipts map[string]quotaescrow.ControlReceipt
+	if !job.Complete || json.Unmarshal([]byte(job.PlanJSON), &plan) != nil || json.Unmarshal([]byte(job.ReceiptsJSON), &receipts) != nil {
+		return nil, errors.New("completed enrollment receipt is unavailable")
+	}
+	list := make([]quotaescrow.ControlReceipt, 0, len(receipts))
+	snapshots := make([]quotaescrow.LegacySnapshot, 0, len(receipts))
+	for _, receipt := range receipts {
+		list = append(list, receipt)
+		if receipt.Historical != nil {
+			snapshots = append(snapshots, *receipt.Historical)
+		}
+	}
+	if _, err := quotaescrow.PreparedHistoricalUsage(plan, list); err != nil {
+		return nil, err
+	}
+	counters, err := quotaescrow.FrozenHistoricalCounters(plan.AccountingRoots, snapshots)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]MeshFrozenRoot, 0, len(plan.AccountingRoots))
+	for _, root := range plan.AccountingRoots {
+		v := counters[root]
+		result = append(result, MeshFrozenRoot{Owner: root.Owner, Email: root.Alias, Up: v.Up, Down: v.Down})
+	}
+	return result, nil
 }
 
 // A native client gets a stable identity scoped to its managing panel. It is
@@ -194,6 +275,12 @@ func MeshCapabilities() map[string]any {
 	caps := map[string]any{"protocolVersion": 1, "runtimeReady": runtime, "enrollmentReady": runtime && activeMeshEnrollment.Load() != nil, "usageMode": "shared", "independentCutoff": runtime}
 	if runtime {
 		caps["parentAccountingVersion"] = 1
+		caps["parentLifecycleVersion"] = 1
+		if administrator.Local != nil && administrator.Quorum.Wire != nil {
+			caps["owner"] = administrator.Local.Owner
+			caps["controlEpoch"] = administrator.Quorum.Wire.Epoch
+			caps["enrollmentVersion"] = 2
+		}
 	}
 	return caps
 }

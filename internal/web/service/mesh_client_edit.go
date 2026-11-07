@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/quotaescrow"
 	"gorm.io/gorm"
 )
 
@@ -76,5 +79,26 @@ func TryMeshClientEdit(ctx context.Context, email string, updated model.Client, 
 		expires++
 	}
 	disabled, unlimited := !updated.Enable, updated.TotalGB == 0
+	if key == "" {
+		// Existing integrations perform absolute client updates without a retry
+		// header. Preserve that API, but pin this update to the observed policy:
+		// it may not overwrite a newer majority decision from a stale replica.
+		ledger, err := quotaescrow.NewStore(db).Load(binding.Subscription)
+		if err != nil {
+			return true, result, err
+		}
+		input, generated := legacyAbsoluteMeshRequest(ledger.Policy(), updated.TotalGB, expires, disabled, unlimited)
+		receipt, err := QueueMeshParentPolicy(ctx, input, generated)
+		return true, MeshOperationResult{Operation: receipt.Operation, Pending: receipt.ApplicationPending}, err
+	}
 	return TryMeshLifecycle(ctx, email, "renew", key, &updated.TotalGB, &expires, MeshAvailability{Disabled: &disabled, Unlimited: &unlimited})
+}
+
+func legacyAbsoluteMeshRequest(p quotaescrow.Policy, limit, expires int64, disabled, unlimited bool) (MeshParentPolicyInput, string) {
+	input := MeshParentPolicyInput{Subscription: p.Subscription, ControlEpoch: p.ControlEpoch,
+		Epoch: p.Epoch, ExpectedHash: quotaescrow.PolicyHash(p), Kind: "renew",
+		Limit: limit, ExpiresAt: expires, Disabled: &disabled, Unlimited: &unlimited}
+	encoded, _ := json.Marshal(input)
+	h := sha256.Sum256(append([]byte("legacy-absolute-client/v1\x00"), encoded...))
+	return input, "legacy-" + hex.EncodeToString(h[:])
 }

@@ -35,6 +35,8 @@ type MeshConfig struct {
 	BootstrapControl        bool              `json:"bootstrapControl,omitempty"`
 	EnrollmentAuthorityFile string            `json:"enrollmentAuthorityFile,omitempty"`
 	EnrollmentJournalFile   string            `json:"enrollmentJournalFile,omitempty"`
+	NativeEnrollment        bool              `json:"nativeEnrollment,omitempty"`
+	NativeEnrollmentExclude []string          `json:"nativeEnrollmentExclude,omitempty"`
 }
 
 func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
@@ -96,6 +98,17 @@ func LoadMeshConfig(path string) (*MeshConfig, *tls.Config, error) {
 }
 
 func (c *MeshConfig) validate() error {
+	if c.NativeEnrollment && c.EnrollmentAuthorityFile == "" {
+		return errors.New("native enrollment requires the configured enrollment manager")
+	}
+	if len(c.NativeEnrollmentExclude) > 2000 {
+		return errors.New("too many native enrollment exclusions")
+	}
+	for _, email := range c.NativeEnrollmentExclude {
+		if email == "" || len(email) > 512 {
+			return errors.New("invalid native enrollment exclusion")
+		}
+	}
 	if (c.EnrollmentAuthorityFile == "") != (c.EnrollmentJournalFile == "") ||
 		(c.EnrollmentAuthorityFile != "" && (c.ControlEpoch == "" || !filepath.IsAbs(c.EnrollmentAuthorityFile) || !filepath.IsAbs(c.EnrollmentJournalFile) || c.EnrollmentJournalFile == c.JournalFile)) {
 		return errors.New("initial enrollment requires separate private authority/journal paths and majority control")

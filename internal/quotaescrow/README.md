@@ -507,3 +507,32 @@ parent's lifetime identity, merge each member's sequence once across mirrors, an
 retain old-cycle lifetime bytes without charging them to a newer reset generation.
 The advertised `parentAccountingVersion: 1` describes this read contract only; it
 does not claim that automatic app enrollment or balance cutover is installed.
+
+## Atomic native enrollment
+
+`POST /panel/api/clients/meshEnrollNative` accepts an existing client email and
+a stable `Idempotency-Key`, with administrator authorization. It captures the
+native quota, enabled state, expiry and reset schedule rather than trusting a
+second copy from the browser. The parent identity includes the managing panel
+and durable client identity; matching display names do not join accounts.
+
+Signed inventory includes a separate initial-state digest. Prepare compares
+credentials and initial policy inside the same serialized database transaction
+that records the admission barrier. Traffic can continue during discovery;
+the final drain captures those bytes. A changed quota, expiry, enable state or
+schedule cannot be overwritten by stale enrollment. Retrying an accepted native
+request recovers its original target, including after subsequent renewals.
+
+First-use expiry must be activated before enrollment. Legacy automatic-renewal
+periods need explicit migration; they are rejected before creating an operation.
+This API is not an automatic production migration. A partially prepared operation
+retains its barrier and durable journal until recovered; it must not be discarded
+or recreated with guessed counters.
+
+`meshParentPolicy` provides a bounded administrator-only parent lifecycle API.
+The request pins the control epoch, lifetime epoch and expected policy hash.
+The majority recovers the original operation receipt before evaluating a stale
+hash on a retry; a new stale request cannot overwrite a more recent renewal.
+The receipt identifies the committed version and reset generation, separately
+from eventual application on offline members. This contract is advertised as
+`parentLifecycleVersion: 1`; it does not enable automatic app provisioning.

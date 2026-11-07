@@ -20,26 +20,38 @@ type meshAliasJob struct {
 	CommandJSON string
 	Committed   bool
 	Version     uint64
+	PolicyHash  string
+	Generation  uint64
 }
 
 func (meshAliasJob) TableName() string { return "mesh_alias_jobs" }
 
 type MeshAliasInput struct {
-	Subscription string `json:"subscription"`
-	Email        string `json:"email"`
-	Revoke       bool   `json:"revoke"`
+	Subscription string   `json:"subscription"`
+	ControlEpoch string   `json:"controlEpoch,omitempty"`
+	Epoch        string   `json:"epoch,omitempty"`
+	Email        string   `json:"email"`
+	Revoke       bool     `json:"revoke"`
+	Roots        []string `json:"roots,omitempty"`
 }
 
 type MeshAliasResult struct {
 	Operation          string `json:"operation"`
 	MajorityCommitted  bool   `json:"majorityCommitted"`
 	ApplicationPending bool   `json:"applicationPending"`
+	PolicyVersion      uint64 `json:"policyVersion"`
+	PolicyHash         string `json:"policyHash"`
+	ResetGeneration    uint64 `json:"resetGeneration"`
 }
 
 func QueueMeshAlias(ctx context.Context, input MeshAliasInput, key string) (MeshAliasResult, error) {
 	a := activeMeshEnrollment.Load()
 	if a == nil {
-		return MeshAliasResult{}, errors.New("device membership manager is not configured")
+		manager := activeMeshAdministrator.Load()
+		if !input.Revoke || manager == nil || manager.Quorum == nil || manager.Quorum.revocations == nil {
+			return MeshAliasResult{}, errors.New("device membership manager is not configured")
+		}
+		a = manager.Quorum.revocations
 	}
 	return a.QueueAlias(ctx, input, key)
 }
@@ -67,7 +79,10 @@ func (a *MeshEnrollmentAdministrator) QueueAlias(ctx context.Context, input Mesh
 		if err != nil {
 			return out, err
 		}
-		patches, err := a.builder.AliasChanges(ctx, policy, a.manager.Local.Owner, input.Email, input.Revoke)
+		if (input.ControlEpoch != "" || input.Epoch != "") && (input.ControlEpoch != policy.ControlEpoch || input.Epoch != policy.Epoch) {
+			return out, errors.New("device control or lifetime identity changed")
+		}
+		patches, err := a.builder.AliasChangesForRoots(ctx, policy, a.manager.Local.Owner, input.Email, input.Revoke, input.Roots)
 		if err != nil {
 			return out, err
 		}
@@ -94,7 +109,7 @@ func (a *MeshEnrollmentAdministrator) executeAliasJob(ctx context.Context, job *
 	if json.Unmarshal([]byte(job.CommandJSON), &command) != nil || command.ID != job.ID || command.Kind != "alias" || len(command.AliasBatch) == 0 || command.DeviceHash == "" {
 		return out, errors.New("invalid saved device membership command")
 	}
-	if !job.Committed {
+	if !job.Committed || job.PolicyHash == "" {
 		result, err := a.aliasExecute(ctx, command)
 		if err != nil {
 			return out, err
@@ -106,11 +121,13 @@ func (a *MeshEnrollmentAdministrator) executeAliasJob(ctx context.Context, job *
 			return out, errors.New("missing committed device membership result")
 		}
 		job.Committed, job.Version = true, result.Update.Next.Version
+		job.PolicyHash, job.Generation = quotaescrow.PolicyHash(result.Update.Next), result.Update.Next.ResetGeneration
 		if err := a.manager.Coordinator.DB.Save(job).Error; err != nil {
 			return out, err
 		}
 	}
 	out.MajorityCommitted = true
+	out.PolicyVersion, out.PolicyHash, out.ResetGeneration = job.Version, job.PolicyHash, job.Generation
 	// A successful local application says nothing about an offline member.
 	// Keep applicationPending true; peers use the ordinary certified catch-up.
 	return out, a.aliasSync(ctx, command.Subscription, job.Version)

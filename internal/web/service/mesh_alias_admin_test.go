@@ -71,17 +71,20 @@ func TestMeshAliasRequestSurvivesLostReplyAndRevocationCannotBeReversed(t *testi
 		return quotaescrow.Inventory{}, nil
 	}
 	retry, err := a.QueueAlias(context.Background(), input, "add-one")
-	if err != nil || !retry.MajorityCommitted || first.Operation != retry.Operation {
+	if err != nil || !retry.MajorityCommitted || first.Operation != retry.Operation || retry.PolicyVersion != 2 || retry.PolicyHash == "" || retry.ResetGeneration != p.ResetGeneration {
 		t.Fatal(retry, err)
 	}
 	input.Revoke = true
-	if _, err := a.QueueAlias(context.Background(), input, "revoke-one"); err != nil {
+	oldEnrollment := activeMeshEnrollment.Swap(nil)
+	oldAdministrator := activeMeshAdministrator.Swap(&MeshAdministrator{Quorum: &MeshQuorum{revocations: a}})
+	t.Cleanup(func() { activeMeshEnrollment.Store(oldEnrollment); activeMeshAdministrator.Store(oldAdministrator) })
+	if _, err := QueueMeshAlias(context.Background(), input, "revoke-one"); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := f.Policy(p.Subscription)
 	input.Revoke = false
-	if _, err := a.QueueAlias(context.Background(), input, "add-one"); err != nil {
-		t.Fatal(err)
+	if replay, err := a.QueueAlias(context.Background(), input, "add-one"); err != nil || replay != retry {
+		t.Fatal("original membership receipt changed after revocation", replay, err)
 	}
 	after, _ := f.Policy(p.Subscription)
 	if quotaescrow.PolicyHash(before) != quotaescrow.PolicyHash(after) || !after.Aliases["a"]["tablet"].Revoked {

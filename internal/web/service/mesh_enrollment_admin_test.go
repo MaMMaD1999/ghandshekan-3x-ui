@@ -180,3 +180,36 @@ func TestMeshEnrollmentConfigRequiresSeparateMajorityJournal(t *testing.T) {
 		t.Fatal("shared lifecycle journal accepted")
 	}
 }
+
+func TestMeshEnrollmentExplicitRootsReturnStableFrozenCutover(t *testing.T) {
+	a, manager := enrollmentAdminFixture(t)
+	child, _, _, _ := controlFixture(t, "independent-root")
+	child.Authority = manager.Authority
+	nodes := map[string]*MeshControl{manager.Owner: manager, child.Owner: child}
+	a.builder.Keys[child.Owner] = child.Key.Public().(ed25519.PublicKey)
+	a.builder.Inspect = func(_ context.Context, owner string, request quotaescrow.SignedInspection) (quotaescrow.Inventory, error) {
+		return nodes[owner].Inspect(request)
+	}
+	a.manager.Coordinator.CheckReady = a.builder.CheckReady
+	a.manager.Coordinator.Call = func(ctx context.Context, owner string, request quotaescrow.SignedControl) (quotaescrow.ControlReceipt, error) {
+		return nodes[owner].Execute(ctx, request)
+	}
+	input := MeshEnrollmentInput{Subscription: "app-parent", Disabled: true,
+		Roots: []quotaescrow.LegacyRoot{{Owner: child.Owner, Alias: "phone"}, {Owner: manager.Owner, Alias: "phone"}}}
+	first, err := a.Queue(context.Background(), input, "one-frozen-cutover")
+	if err != nil || first.Pending || first.Scope == nil || first.Scope.Subscription != input.Subscription || first.Scope.Epoch == "" || len(first.Frozen) != 2 {
+		t.Fatal("missing completed scoped enrollment", first, err)
+	}
+	var total int64
+	for _, root := range first.Frozen {
+		total += root.Up + root.Down
+	}
+	if total != 200 {
+		t.Fatal("frozen roots lost or duplicated historical bytes", total)
+	}
+	input.Roots[0], input.Roots[1] = input.Roots[1], input.Roots[0]
+	retried, err := a.Queue(context.Background(), input, "one-frozen-cutover")
+	if err != nil || retried.Operation != first.Operation || *retried.Scope != *first.Scope || len(retried.Frozen) != 2 {
+		t.Fatal("retry changed the cutover", retried, err)
+	}
+}
