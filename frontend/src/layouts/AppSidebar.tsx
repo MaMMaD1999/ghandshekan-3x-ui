@@ -1,4 +1,4 @@
-import brandMark from '@/assets/ghandshekan-mark-256.webp';
+import brandMark from '@/assets/ghandshekan-panel-mark.webp';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router';

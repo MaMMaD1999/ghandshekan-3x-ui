@@ -1,4 +1,4 @@
-import brandMark from '@/assets/ghandshekan-mark-256.webp';
+import brandMark from '@/assets/ghandshekan-panel-mark.webp';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
