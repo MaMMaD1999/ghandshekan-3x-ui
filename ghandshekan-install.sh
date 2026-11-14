@@ -6,9 +6,11 @@ VERSION="${1:-latest}"
 for command in systemctl curl tar sha256sum openssl python3 flock; do
   command -v "$command" >/dev/null || { echo "Install $command first." >&2; exit 1; }
 done
+command -v gh >/dev/null || { echo 'Install GitHub CLI (gh) and authenticate to this private repository first.' >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo 'Run gh auth login before installation.' >&2; exit 1; }
 if [[ "$VERSION" == latest ]]; then
   # Public releases includes published prereleases; /releases/latest excludes them.
-  releases=$(curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 30 --proto '=https' --proto-redir '=https' 'https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/releases?per_page=100')
+  releases=$(gh api 'repos/MaMMaD1999/ghandshekan-3x-ui/releases?per_page=100')
   VERSION=$(printf '%s\n' "$releases" | python3 -c '
 import json, re, sys
 required = {"checksums.txt", "x-ui-linux-amd64.tar.gz", "x-ui-linux-arm64.tar.gz"}
@@ -36,8 +38,7 @@ esac
 stage=$(mktemp -d /tmp/pronet-install.XXXXXXXX)
 base="https://github.com/MaMMaD1999/ghandshekan-3x-ui/releases/download/$VERSION"
 archive="x-ui-linux-$arch.tar.gz"
-curl --fail --location --retry 3 --proto '=https' "$base/$archive" -o "$stage/$archive"
-curl --fail --location --retry 3 --proto '=https' "$base/checksums.txt" -o "$stage/checksums.txt"
+gh release download "$VERSION" --repo MaMMaD1999/ghandshekan-3x-ui --pattern "$archive" --pattern checksums.txt --dir "$stage"
 (cd "$stage"; grep -E "  $archive$" checksums.txt > selected.sha256; test -s selected.sha256; sha256sum -c selected.sha256)
 tar -tzf "$stage/$archive" | awk '/^\// || /(^|\/)\.\.(\/|$)/ {exit 1}'
 tar -xzf "$stage/$archive" -C "$stage"
