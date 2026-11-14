@@ -384,7 +384,7 @@ body.dark .ant-drawer-body .drawer-menu .ant-menu-item-group-list {
 .drawer-header { flex-wrap: wrap; gap: 8px; }
 .drawer-header > .brand-block { flex: 1 0 100%; }
 .drawer-header-actions { flex-shrink: 0; margin-inline-start: auto; max-width: 100%; }
-.drawer-header .brand-block img { width: 34px; height: 38px; object-fit: contain; flex: none; }
+.drawer-header .brand-block img { width: 44px; height: 44px; object-fit: contain; flex: none; }
 
 /* Keep the header/search/footer visible; only the navigation list scrolls. */
 .drawer-header { flex-shrink: 0; }

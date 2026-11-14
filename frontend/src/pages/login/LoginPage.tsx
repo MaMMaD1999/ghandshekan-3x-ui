@@ -179,7 +179,7 @@ export default function LoginPage() {
               </div>
             ) : (
               <div className="login-card">
-                <div className="brand"><img src={brandMark} alt="" width={58} height={66} style={{objectFit:"contain"}}/>
+                <div className="brand"><img src={brandMark} alt="" width={80} height={80} style={{objectFit:"contain"}}/>
                   <span className="brand-name">GhandShekan <small className="brand-pro">Pro</small></span>
                   <span className="brand-accent" aria-hidden="true" />
                 </div>

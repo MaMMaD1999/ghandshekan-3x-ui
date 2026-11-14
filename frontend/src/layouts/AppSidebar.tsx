@@ -361,7 +361,7 @@ export default function AppSidebar() {
         collapsed={railCollapsed}
       >
         <div className="sider-brand">
-          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
+          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={44} height={44} style={{objectFit:"contain"}}/>
             <span className="brand-text">{!railCollapsed && <>GhandShekan <small className="brand-pro">Pro</small></>}</span>
           </div>
           {!railCollapsed && (
@@ -448,7 +448,7 @@ export default function AppSidebar() {
         onClose={() => setDrawerOpen(false)}
       >
         <div className="drawer-header">
-          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={34} height={38} style={{objectFit:"contain"}}/>
+          <div className="brand-block" style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}><img src={brandMark} alt="" width={44} height={44} style={{objectFit:"contain"}}/>
             <span className="drawer-brand">GhandShekan <small className="brand-pro">Pro</small></span>
           </div>
           <div className="drawer-header-actions">
