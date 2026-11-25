@@ -24,7 +24,7 @@ jobs:
       - run: python3 tools/test_country_font_build.py
       - run: go test ./internal/xray ./internal/database/model ./internal/web/service ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
       - run: go build -o /tmp/pronet-panel .
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: validated-linux-amd64-panel
           path: /tmp/pronet-panel
