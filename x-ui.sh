@@ -137,7 +137,7 @@ install() {
         return 1
     fi
     temp=$(mktemp) || return 1
-    if curl -fL --retry 3 "https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/$ref/pronet-install.sh" -o "$temp"; then
+    if gh api --hostname github.com -H "Accept: application/vnd.github.raw+json" "repos/MaMMaD1999/ghandshekan-3x-ui/contents/pronet-install.sh?ref=$ref" > "$temp"; then
         bash "$temp" "$version"
         local result=$?
         rm -f "$temp"

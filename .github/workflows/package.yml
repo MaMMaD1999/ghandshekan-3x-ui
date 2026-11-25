@@ -31,13 +31,25 @@ jobs:
         working-directory: frontend
       - run: python3 tools/test_country_font_build.py
       - run: go test ./internal/xray ./internal/database ./internal/database/model ./internal/util/version ./internal/web/service ./internal/web/service/panel ./internal/web/runtime ./internal/web/job ./internal/web/controller ./internal/sub
-      - uses: actions/checkout@v7
-        with:
-          repository: MaMMaD1999/ghandshekan-xray-core
-          ref: ed08d8db5a57e205129966c707b014bc6b172ed7
-          path: .pronet-core
-      - run: go test ./app/dispatcher && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../custom-xray ./main
-        working-directory: .pronet-core
+      # Panel-only builds reuse the verified core from the previous release.
+      # Both archives contain the core built from ed08d8db5a57e205129966c707b014bc6b172ed7.
+      - name: Get the pinned custom core
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          archive="x-ui-linux-$ARCH.tar.gz"
+          gh release download v3.10.2-ghandshekan.33 --pattern "$archive"
+          case "$ARCH" in
+            amd64) expected=889f7fb2bda9eb07d171457069c314f5fe0bc452e979e4d28bc33e6eca9afc7b ;;
+            arm64) expected=24e510e78214c827e8ae0ad62c9cafa80865d9a1c5d30b79115e9d054b6668b4 ;;
+          esac
+          echo "$expected  $archive" | sha256sum -c -
+          member=$(tar -tzf "$archive" | grep -Ex "(\./)?x-ui/bin/xray-linux-$ARCH")
+          tar -xOzf "$archive" "$member" > custom-xray
+          chmod +x custom-xray
+          rm "$archive"
       - run: python3 tools/test_pronet_core.py ./custom-xray
       - name: Build and verify package
         env:
