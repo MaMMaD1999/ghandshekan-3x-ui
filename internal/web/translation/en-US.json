@@ -288,6 +288,7 @@
       "importKeepHostSettingsDesc": "Keeps this panel's listen addresses, ports, base path, certificates and node identity instead of taking them from the uploaded file."
     },
     "inbounds": {
+      "totalSpeed": "Total inbound speed",
       "totalDownUp": "Total Sent/Received",
       "totalUsage": "Total Usage",
       "inboundCount": "Total Inbounds",

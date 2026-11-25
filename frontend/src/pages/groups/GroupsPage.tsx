@@ -64,6 +64,8 @@ const ClientRecordListSchema = z
 
 const SubLinksModal = lazy(() => import('../clients/SubLinksModal'));
 const ClientBulkAdjustModal = lazy(() => import('../clients/ClientBulkAdjustModal'));
+const BulkAttachInboundsModal = lazy(() => import('../clients/BulkAttachInboundsModal'));
+const BulkDetachInboundsModal = lazy(() => import('../clients/BulkDetachInboundsModal'));
 const GroupAddClientsModal = lazy(() => import('./GroupAddClientsModal'));
 const GroupRemoveClientsModal = lazy(() => import('./GroupRemoveClientsModal'));
 
@@ -98,8 +100,9 @@ export default function GroupsPage() {
   }, [messageApi]);
   const queryClient = useQueryClient();
 
-  const { subSettings, bulkAdjust, bulkAddToGroup, bulkRemoveFromGroup, bulkDelete } = useClients({
+  const { inbounds, bulkAttach, bulkDetach, subSettings, bulkAdjust, bulkAddToGroup, bulkRemoveFromGroup, bulkDelete } = useClients({
     list: false,
+    inboundOptions: true,
   });
 
   const groupsQuery = useQuery({
@@ -155,6 +158,8 @@ export default function GroupsPage() {
   const [renameValue, setRenameValue] = useState('');
 
   const [subLinksOpen, setSubLinksOpen] = useState(false);
+  const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
+  const [bulkDetachOpen, setBulkDetachOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [addClientsOpen, setAddClientsOpen] = useState(false);
   const [removeClientsOpen, setRemoveClientsOpen] = useState(false);
@@ -266,7 +271,7 @@ export default function GroupsPage() {
     setSubLinksOpen(true);
   }
 
-  async function openAdjustFor(g: GroupSummary) {
+  async function openAdjustFor(g: GroupSummary, show = setAdjustOpen) {
     if (!g.clientCount) {
       messageApi.info(t('pages.groups.emptyForAction'));
       return;
@@ -278,7 +283,7 @@ export default function GroupsPage() {
     }
     setGroupForAction(g);
     setGroupEmails(emails);
-    setAdjustOpen(true);
+    show(true);
   }
 
   function openAddClientsFor(g: GroupSummary) {
@@ -364,6 +369,20 @@ export default function GroupsPage() {
         label: t('pages.clients.adjustSelected', { count: row.clientCount || 0 }),
         disabled: !row.clientCount,
         onClick: () => openAdjustFor(row),
+      },
+      {
+        key: 'attachInbounds',
+        icon: <LinkOutlined />,
+        label: t('pages.clients.attachToInboundsTitle', { count: row.clientCount || 0 }),
+        disabled: !row.clientCount,
+        onClick: () => openAdjustFor(row, setBulkAttachOpen),
+      },
+      {
+        key: 'detachInbounds',
+        icon: <LinkOutlined />,
+        label: t('pages.clients.detachFromInboundsTitle', { count: row.clientCount || 0 }),
+        disabled: !row.clientCount,
+        onClick: () => openAdjustFor(row, setBulkDetachOpen),
       },
       {
         key: 'reset',
@@ -649,6 +668,36 @@ export default function GroupsPage() {
           />
         </LazyMount>
 
+        <LazyMount when={bulkAttachOpen}>
+          <BulkAttachInboundsModal
+            open={bulkAttachOpen}
+            count={groupEmails.length}
+            inbounds={inbounds}
+            onOpenChange={setBulkAttachOpen}
+            onSubmit={async (inboundIds) => {
+              const msg = await bulkAttach(groupEmails, inboundIds);
+              if (msg?.success) {
+                return msg.obj ?? { attached: [], skipped: [], errors: [] };
+              }
+              return null;
+            }}
+          />
+        </LazyMount>
+        <LazyMount when={bulkDetachOpen}>
+          <BulkDetachInboundsModal
+            open={bulkDetachOpen}
+            count={groupEmails.length}
+            inbounds={inbounds}
+            onOpenChange={setBulkDetachOpen}
+            onSubmit={async (inboundIds) => {
+              const msg = await bulkDetach(groupEmails, inboundIds);
+              if (msg?.success) {
+                return msg.obj ?? { detached: [], skipped: [], errors: [] };
+              }
+              return null;
+            }}
+          />
+        </LazyMount>
         <LazyMount when={adjustOpen}>
           <ClientBulkAdjustModal
             open={adjustOpen}

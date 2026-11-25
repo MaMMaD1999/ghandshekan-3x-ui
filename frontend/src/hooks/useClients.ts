@@ -170,6 +170,7 @@ export interface UseClientsOptions {
   // list whose result they never read, which on a large panel means a full
   // summary aggregate every 5 seconds for nothing.
   list?: boolean;
+  inboundOptions?: boolean;
 }
 
 export function useClients(options: UseClientsOptions = {}) {
@@ -225,7 +226,7 @@ export function useClients(options: UseClientsOptions = {}) {
   const inboundOptionsQuery = useQuery({
     queryKey: keys.inbounds.options(),
     queryFn: fetchInboundOptions,
-    enabled: withList,
+    enabled: options.inboundOptions ?? withList,
     staleTime: Infinity,
   });
 

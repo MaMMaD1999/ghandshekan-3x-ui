@@ -709,6 +709,14 @@ export default function InboundsPage() {
     ],
   );
 
+  const liveRates = dbInbounds.reduce(
+    (sum, inbound) => {
+      const rate = inboundSpeed[inbound.id];
+      return { up: sum.up + (rate?.up ?? 0), down: sum.down + (rate?.down ?? 0) };
+    },
+    { up: 0, down: 0 },
+  );
+
   return (
     <ConfigProvider theme={antdThemeConfig}>
       {messageContextHolder}
@@ -748,7 +756,7 @@ export default function InboundsPage() {
                   <Col span={24}>
                     <Card size="small" hoverable className="summary-card">
                       <Row gutter={[16, 12]}>
-                        <Col xs={12} sm={12} md={8}>
+                        <Col xs={12} sm={12} md={6}>
                           <Statistic
                             title={t('pages.inbounds.totalDownUp')}
                             value={0}
@@ -761,14 +769,25 @@ export default function InboundsPage() {
                             )}
                           />
                         </Col>
-                        <Col xs={12} sm={12} md={8}>
+                        <Col xs={12} sm={12} md={6}>
                           <Statistic
                             title={t('pages.inbounds.totalUsage')}
                             value={SizeFormatter.sizeFormat(totals.up + totals.down)}
                             prefix={<PieChartOutlined />}
                           />
                         </Col>
-                        <Col xs={24} sm={24} md={8}>
+                        <Col xs={12} sm={12} md={6}>
+                          <Statistic
+                            title={t('pages.inbounds.totalSpeed')}
+                            value={0}
+                            formatter={() => (
+                              <span dir="ltr">
+                                ↑ {SizeFormatter.speedFormat(liveRates.up)} / ↓ {SizeFormatter.speedFormat(liveRates.down)}
+                              </span>
+                            )}
+                          />
+                        </Col>
+                        <Col xs={12} sm={12} md={6}>
                           <Statistic
                             title={t('pages.inbounds.inboundCount')}
                             value={String(dbInbounds.length)}
