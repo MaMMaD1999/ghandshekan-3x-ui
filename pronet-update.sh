@@ -52,10 +52,11 @@ exec 9>"$lock"
 flock -n 9 || { echo 'Another GhandShekan installation or update is running.' >&2; exit 1; }
 case $(uname -m) in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; *) exit 2;; esac
 core=xray-linux-$arch
-command -v gh >/dev/null || { echo 'Install GitHub CLI (gh) and authenticate to this private repository first.' >&2; exit 1; }
-gh auth status >/dev/null 2>&1 || { echo 'Run gh auth login before installation.' >&2; exit 1; }
-gh release download "$tag" --repo MaMMaD1999/ghandshekan-3x-ui --pattern "x-ui-linux-$arch.tar.gz" --pattern checksums.txt --dir "$stage"
-mv "$stage/x-ui-linux-$arch.tar.gz" "$stage/package.tar.gz"
+asset_tag=$tag
+if [[ $asset_tag == v3.10.2-ghandshekan.34 ]]; then asset_tag+=-public; fi
+base=https://github.com/MaMMaD1999/ghandshekan-3x-ui/releases/download/$asset_tag
+curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 --proto '=https' --proto-redir '=https' "$base/x-ui-linux-$arch.tar.gz" -o "$stage/package.tar.gz"
+curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 --proto '=https' --proto-redir '=https' "$base/checksums.txt" -o "$stage/checksums.txt"
 hash=$(awk -v file="x-ui-linux-$arch.tar.gz" '$2==file {print $1}' "$stage/checksums.txt")
 [[ $hash =~ ^[0-9a-f]{64}$ ]]
 printf '%s  %s\n' "$hash" "$stage/package.tar.gz" | sha256sum -c -

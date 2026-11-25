@@ -3,10 +3,8 @@
 پنل سفارشی قندشکن پرو؛ آمار خام و محاسبه‌شده، ضریب اینباند، گزارش شمسی و به‌روزرسانی امن.
 
 ```bash
-bash -c 'set -e; apt-get update; apt-get install -y gh ca-certificates; gh auth status >/dev/null 2>&1 || gh auth login --hostname github.com --git-protocol https --web; f=$(mktemp); gh api -H "Accept: application/vnd.github.raw+json" repos/MaMMaD1999/ghandshekan-3x-ui/contents/ghandshekan-install.sh > "$f"; bash "$f"; rm -f "$f"'
+bash <(curl -fsSL https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/main/ghandshekan-install.sh)
 ```
-
-مخزن خصوصی است؛ نصب و دریافت نسخه به ورود GitHub مالک نیاز دارد. لینک‌های خام عمومی دیگر قابل استفاده نیستند. قبل از حذف سرور، دیتابیس، تنظیمات سرویس، گواهی TLS و تنظیمات نودها را در بکاپ خصوصی نگه دارید. نصب تازه به‌تنهایی کاربران سرور حذف‌شده را بازیابی نمی‌کند. برای به‌روزرسانی نسخه‌های نصب‌شدهٔ قدیمی نیز از دستور بالا استفاده کنید؛ به‌روزرسان داخلی قدیمی ممکن است مخزن خصوصی را نبیند.
 
 Updates preserve the existing database, service paths and client identities.
 

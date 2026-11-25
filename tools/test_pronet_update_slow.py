@@ -34,12 +34,7 @@ int main(int argc,char **argv){if(argc>1){puts(VERSION);return 0;} signal(SIGUSR
             package=root/'package.tar.gz'
             with tarfile.open(package,'w:gz') as tar:tar.add(root/'package/x-ui',arcname='x-ui')
             (root/'checksums.txt').write_text(hashlib.sha256(package.read_bytes()).hexdigest()+f'  x-ui-linux-{arch}.tar.gz\n')
-            gh = mock / 'gh'
-            gh.write_text('#!/bin/bash\nset -eu\n[[ "$1" != auth ]] || exit 0\n'
-                          '[[ "$1 $2" == "release download" ]]\n'
-                          'cp "$FIXTURE/checksums.txt" "${!#}/checksums.txt"\n'
-                          f'cp "$FIXTURE/package.tar.gz" "${{!#}}/x-ui-linux-{arch}.tar.gz"\n')
-            gh.chmod(0o755)
+            (mock/'curl').write_text('#!/bin/bash\nsrc="$FIXTURE/package.tar.gz"\nfor arg in "$@"; do case "$arg" in *checksums.txt) src="$FIXTURE/checksums.txt";; esac; done\nwhile [[ "$1" != -o ]]; do shift; done\ncp "$src" "$2"\n');(mock/'curl').chmod(0o755)
             text=(ROOT/'pronet-update.sh').read_text().replace('/usr/bin/x-ui',str(root/'menu')).replace('/run/lock/pronet-update.lock',str(root/'lock'))
             script=root/'update.sh';script.write_text(text)
             proc=subprocess.Popen([str(app/'x-ui')])

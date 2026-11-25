@@ -26,9 +26,9 @@ class InstallerTest(unittest.TestCase):
             {'tag_name': 'v3.10.2-pronet.11', 'draft': True, 'assets': assets},
             {'tag_name': 'v3.10.2-pronet.9', 'draft': False, 'prerelease': True, 'assets': assets},
         ]
-        fixture = 'set -euo pipefail\nVERSION=latest\ngh(){ cat <<\'JSON\'\n' + json.dumps(releases, indent=2) + '\nJSON\n}\n'
+        fixture = 'set -euo pipefail\nVERSION=latest\ncurl(){ cat <<\'JSON\'\n' + json.dumps(releases, indent=2) + '\nJSON\n}\n'
         self.assertIn('Selected GhandShekan release: v3.10.2-pronet.9', self.run_shell(fixture + resolver))
-        explicit = 'set -euo pipefail; VERSION=v3.10.2-pronet.5; gh(){ return 99; };\n'
+        explicit = 'set -euo pipefail; VERSION=v3.10.2-pronet.5; curl(){ return 99; };\n'
         self.assertIn('Selected GhandShekan release: v3.10.2-pronet.5', self.run_shell(explicit + resolver))
 
     def run_shell(self, text, input=''):
@@ -50,13 +50,14 @@ class InstallerTest(unittest.TestCase):
     def test_menu_default_update_requests_latest_not_an_old_pinned_release(self):
         fixture = '''set -euo pipefail
 LOGE(){ echo "$*"; }
-gh(){
-  echo "DOWNLOAD:${!#}" >&2
-  printf '#!/bin/bash\\necho "INSTALL_VERSION:$1"\\n'
+curl(){
+  echo "DOWNLOAD:$4"
+  while [[ "$1" != -o ]]; do shift; done
+  printf '#!/bin/bash\\necho "INSTALL_VERSION:$1"\\n' > "$2"
 }
 '''
         output = self.run_shell(fixture + function('install') + '\ninstall\n')
-        self.assertIn('contents/pronet-install.sh?ref=$ref', function('install'))
+        self.assertIn('/main/pronet-install.sh', output)
         self.assertIn('INSTALL_VERSION:latest', output)
 
     def test_shared_postgres_cannot_be_purged(self):

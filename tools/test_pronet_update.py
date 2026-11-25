@@ -43,11 +43,11 @@ class UpdateTest(unittest.TestCase):
             checksum = root / 'checksums.txt'
             checksum.write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + '  x-ui-linux-amd64.tar.gz\n')
             paths = {p.name: shlex.quote(bash_path(p)) for p in (root, app, backup, mock, archive, checksum)}
-            (mock / 'gh').write_text(
-                '#!/usr/bin/env bash\nset -eu\n[[ "$1" != auth ]] || exit 0\n'
-                '[[ "$1 $2" == "release download" ]]\n'
-                'cp "$FIXTURE_CHECKSUM" "${!#}/checksums.txt"\n'
-                'cp "$FIXTURE_ARCHIVE" "${!#}/x-ui-linux-amd64.tar.gz"\n', newline='\n'
+            (mock / 'curl').write_text(
+                '#!/usr/bin/env bash\nset -e\nfor arg in "$@"; do '
+                'case "$arg" in *checksums.txt) src="$FIXTURE_CHECKSUM";; '
+                '*tar.gz) src="$FIXTURE_ARCHIVE";; esac; done\n'
+                'while [[ "$1" != -o ]]; do shift; done\ncp "$src" "$2"\n', newline='\n'
             )
             (mock / 'uname').write_text('#!/usr/bin/env bash\necho x86_64\n', newline='\n')
             (mock / 'flock').write_text('#!/usr/bin/env bash\nexit 0\n', newline='\n')

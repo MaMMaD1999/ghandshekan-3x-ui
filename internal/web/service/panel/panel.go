@@ -41,7 +41,7 @@ type PanelUpdateInfo struct {
 }
 
 const (
-	panelUpdaterURL      = "https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/contents/pronet-update.sh?ref=%s"
+	panelUpdaterURL      = "https://raw.githubusercontent.com/MaMMaD1999/ghandshekan-3x-ui/%s/pronet-update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	// devReleaseTag is the fixed-tag rolling pre-release the CI force-moves to the
 	// newest main commit; the dev update channel installs from it.
@@ -424,26 +424,12 @@ func releaseUpdateSlot() {
 	updateMu.Unlock()
 }
 
-// The installer and detached updater use the same github.com CLI login.
-func privateReleaseRequest(rawURL, accept string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
-	defer cancel()
-	token, err := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", "github.com").Output()
-	if err != nil || strings.TrimSpace(string(token)) == "" {
-		return nil, fmt.Errorf("sign in to github.com with gh for the panel service account to check private releases")
-	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
-	req.Header.Set("Accept", accept)
-	return req, nil
-}
-
 func downloadPanelUpdater(tag string) (string, error) {
+	if tag == "v3.10.2-ghandshekan.34" {
+		tag += "-public"
+	}
 	client := (&service.SettingService{}).NewProxiedHTTPClient(15 * time.Second)
-	req, reqErr := privateReleaseRequest(fmt.Sprintf(panelUpdaterURL, url.QueryEscape(tag)), "application/vnd.github.raw+json")
+	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf(panelUpdaterURL, tag), nil)
 	if reqErr != nil {
 		return "", fmt.Errorf("download panel updater: %w", reqErr)
 	}
@@ -511,7 +497,7 @@ func fetchPanelRelease(tag string) (*service.Release, error) {
 		url = "https://api.github.com/repos/MaMMaD1999/ghandshekan-3x-ui/releases/tags/" + tag
 	}
 	client := (&service.SettingService{}).NewProxiedHTTPClient(10 * time.Second)
-	req, reqErr := privateReleaseRequest(url, "application/vnd.github+json")
+	req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if reqErr != nil {
 		return nil, reqErr
 	}
